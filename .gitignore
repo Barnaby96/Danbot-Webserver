@@ -1,3 +1,7 @@
 my_database.db
 backups
 __pycache__/
+.venv/
+.env
+.env.*
+*.pyc
