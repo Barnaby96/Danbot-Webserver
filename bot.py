@@ -12,16 +12,15 @@ bot = discord.Bot()
 token = os.getenv('DISCORD_BOT_TOKEN')
 
 
+approved_guilds = {
+    int(guild_id.strip())
+    for guild_id in os.getenv("APPROVED_GUILD_IDS", "").split(",")
+    if guild_id.strip()
+}
+
+
 @bot.event
 async def on_guild_join(guild):
-    # Your code here
-    approved_guilds = set()
-
-    # Approved guilds
-    approved_guilds.add(369695042740420608) # Fatalis
-    approved_guilds.add(1216228320807485511) # Dink Test
-    approved_guilds.add(714260066072657980) # W22 Fish
-
     if guild.id not in approved_guilds:
         await guild.leave()
 
