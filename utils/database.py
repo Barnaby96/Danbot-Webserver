@@ -907,6 +907,15 @@ def reset_tables():
 
     print("All tables dropped successfully.")
     print("Recreating now...")
+    cursor.execute('''
+        CREATE TABLE users (
+            user_id SERIAL PRIMARY KEY,
+            username text NOT NULL,
+            email text UNIQUE NOT NULL,
+            password text NOT NULL,
+            is_admin boolean NOT NULL DEFAULT FALSE
+        )
+        ''')
 
     # Create the 'drops' table
 
