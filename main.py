@@ -14,6 +14,8 @@ from routes.dink import drop_submission_route
 from routes.board_routes import board_routes
 import os
 import threading
+from dotenv import load_dotenv
+load_dotenv()
 import bot
 
 from utils.database import add_user, get_user_by_email, check_password, get_user_by_id  # Import your database functions
