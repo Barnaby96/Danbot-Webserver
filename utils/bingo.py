@@ -93,6 +93,13 @@ def get_killcount_progress(tile_progress):
     team = tile_progress.team
     tile_completion_count = tile_progress.completions
 
+    if tile_completion_count >= tile.tile_repetition:
+        tile_progress.status_text = (
+            f"This tile is complete "
+            f"({tile_completion_count}/{tile.tile_repetition} completions)."
+        )
+        return tile_progress
+
     trigger_value = 0
     for i, boss in enumerate(tile.tile_triggers.split(',')):
         kills = database.get_killcount_by_team_id_and_boss_name(team.team_id, boss)
