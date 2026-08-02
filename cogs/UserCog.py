@@ -214,18 +214,61 @@ class UserCog(commands.Cog):
                               f"https://danbot.up.railway.app/static/images/setups/{setup}/budget.png\n")
         return
 
-    @discord.slash_command(name="progress", description="Check your progress on a specific tile")
-    async def progress(self, ctx:discord.ApplicationContext,
-                       team_name: discord.Option(str, "What is your team name?", autocomplete=lambda ctx: fuzzy_autocomplete(ctx, team_names())),
-                       tile_name: discord.Option(str, "What tile are you checking?", autocomplete=lambda ctx: fuzzy_autocomplete(ctx, tile_names()))):
+    @discord.slash_command(
+        name="progress",
+        description="Check your team's progress on a specific tile"
+    )
+    async def progress(
+        self,
+        ctx: discord.ApplicationContext,
+        tile_name: discord.Option(
+            str,
+            "Which tile are you checking?",
+            autocomplete=lambda ctx: fuzzy_autocomplete(
+                ctx,
+                tile_names()
+            )
+        )
+    ):
         await ctx.defer()
-        team = db_entities.Team(database.get_team_by_name(team_name))
-        tile = db_entities.Tile(database.get_tile_by_name(tile_name))
-        progress = bingo.check_progress(tile, team)
-        if progress is None:
-            await ctx.respond(f"You have fully completed {tile.tile_name}!")
-        else:
-            await ctx.respond(progress)
+
+        player_data = database.get_player_by_discord_user_id(
+            ctx.author.id
+        )
+
+        if player_data is None:
+            await ctx.respond(
+                "Your Discord account is not registered. "
+                "Use `/register` first."
+            )
+            return
+
+        player = db_entities.Player(player_data)
+
+        team_data = database.get_team_by_id(player.team_id)
+        if team_data is None:
+            await ctx.respond(
+                "Your registered bingo team could not be found. "
+                "Please contact an administrator."
+            )
+            return
+
+        team = db_entities.Team(team_data)
+
+        tile_data = database.get_tile_by_name(tile_name)
+        if tile_data is None:
+            await ctx.respond(
+                f"Unable to find the tile **{tile_name}**."
+            )
+            return
+
+        tile = db_entities.Tile(tile_data)
+        tile_progress = bingo.get_progress(
+            team.team_id,
+            tile.tile_id
+        )
+
+        await ctx.respond(tile_progress.status_text)
 
     @discord.slash_command(name="board", description="Get a list of tiles you've already completed")
     async def board(self, ctx:discord.ApplicationContext,
