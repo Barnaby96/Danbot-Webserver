@@ -21,7 +21,10 @@ def player_list():
 
 
 API_KEY = os.getenv('WOM_KEY')
-DISCORD_NAME = "danny0897"
+DISCORD_NAME = os.getenv(
+    "WOM_USER_AGENT",
+    "DanBot Development"
+)
 
 @player_routes.route('/add_list/<int:team_id>', methods=['GET', 'POST'])
 @admin_required

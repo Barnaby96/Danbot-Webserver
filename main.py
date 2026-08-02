@@ -1,6 +1,14 @@
+import os
+import threading
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from functools import wraps
 
 from flask import Flask, request, render_template, make_response, redirect, url_for, flash, abort
+
 from flask_login import LoginManager, login_user, logout_user, current_user, login_required
 
 from routes.admin.player_routes import player_routes
@@ -12,10 +20,6 @@ from routes.user_routes import user_routes
 from routes.admin.admin_routes import admin_routes
 from routes.dink import drop_submission_route
 from routes.board_routes import board_routes
-import os
-import threading
-from dotenv import load_dotenv
-load_dotenv()
 import bot
 
 from utils.database import (
