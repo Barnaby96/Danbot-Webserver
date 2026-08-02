@@ -20,7 +20,7 @@ def get_drop_progress(tile_progress):
     team = tile_progress.team
     triggers = tile.tile_triggers
     and_triggers = triggers.split(',')
-    trigger_value = database.get_manual_progress_by_tile_id_and_team_id(tile.tile_id, team.team_id)
+    trigger_value = 0
     drops = defaultdict(int)
     for i in range(0, len(and_triggers)):
         trigger = and_triggers[i].strip()
@@ -47,9 +47,19 @@ def get_drop_progress(tile_progress):
         for name, quantity in drops.items():
             trigger_value = int(tile.tile_trigger_weights[i]) * int(quantity) + trigger_value
 
-    trigger_value = trigger_value + database.get_manual_progress_by_tile_id_and_team_id(tile.tile_id, team.team_id)
+    trigger_value = (
+        trigger_value
+        + database.get_manual_progress_by_tile_id_and_team_id(
+            tile.tile_id,
+            team.team_id
+        )
+    )
 
+    tile_progress.progress_value = (
+        trigger_value % tile.tile_triggers_required
+    )
     if tile_completion_count >= tile.tile_repetition:
+        tile_progress.progress_value = tile.tile_triggers_required
         tile_progress.status_text = f"This tile is fully complete. You have {tile_progress.completions}/{tile_progress.tile.tile_repetition} completed."
     else:
         tile_progress.status_text = f"<p>You have {trigger_value % tile.tile_triggers_required} / {tile.tile_triggers_required} of the drops required to complete this tile."
@@ -63,27 +73,66 @@ def get_drop_progress(tile_progress):
 
 
 def get_set_progress(tile_progress):
-    missing_items = []
     tile = tile_progress.tile
     team = tile_progress.team
     tile_completion_count = tile_progress.completions
 
-    tile_progress.status_text = f"<p>You are missing the following items: "
+    most_items_found = 0
+    status_sections = []
 
-    for set in tile.tile_triggers.split('/'):
-        for item in set.split(','):
-            item = item.strip()
-            drops = database.get_relevant_drops_by_item_name_and_team_id(item, team.team_id)
+    for item_set in tile.tile_triggers.split('/'):
+        items = [
+            item.strip()
+            for item in item_set.split(',')
+        ]
+
+        missing_items = []
+        items_found = 0
+
+        for item in items:
+            drops = (
+                database
+                .get_relevant_drops_by_item_name_and_team_id(
+                    item,
+                    team.team_id
+                )
+            )
+
             if len(drops) <= tile_completion_count:
                 missing_items.append(item)
-        if len(missing_items) > 0:
-            tile_progress.status_text += f"<ul>"
-            for item in missing_items:
-                tile_progress.status_text += "<li>" + item + "</li>"
-            tile_progress.status_text += f"</ul>"
-            missing_items = []
+            else:
+                items_found += 1
 
-    tile_progress.status_text += "</p>"
+        most_items_found = max(
+            most_items_found,
+            items_found
+        )
+
+        if missing_items:
+            status_sections.append(
+                "Missing: " + ", ".join(missing_items)
+            )
+
+    if tile_completion_count >= tile.tile_repetition:
+        tile_progress.progress_value = max(
+            most_items_found,
+            1
+        )
+        tile_progress.status_text = (
+            "You have fully completed this tile!"
+        )
+    else:
+        tile_progress.progress_value = most_items_found
+
+        if status_sections:
+            tile_progress.status_text = "\n".join(
+                status_sections
+            )
+        else:
+            tile_progress.status_text = (
+                "No set progress has been recorded."
+            )
+
     return tile_progress
 
 
@@ -94,6 +143,7 @@ def get_killcount_progress(tile_progress):
     tile_completion_count = tile_progress.completions
 
     if tile_completion_count >= tile.tile_repetition:
+        tile_progress.progress_value = tile.tile_triggers_required
         tile_progress.status_text = (
             f"This tile is complete "
             f"({tile_completion_count}/{tile.tile_repetition} completions)."
@@ -101,17 +151,36 @@ def get_killcount_progress(tile_progress):
         return tile_progress
 
     trigger_value = 0
+
     for i, boss in enumerate(tile.tile_triggers.split(',')):
-        kills = database.get_killcount_by_team_id_and_boss_name(team.team_id, boss)
+        kills = database.get_killcount_by_team_id_and_boss_name(
+            team.team_id,
+            boss.strip()
+        )
+
         for kill in kills:
             kill = db_entities.Killcount(kill)
-            trigger_value += int(kill.kills) * int(tile.tile_trigger_weights[i])
+            trigger_value += (
+                int(kill.kills)
+                * int(tile.tile_trigger_weights[i])
+            )
 
-    trigger_value += database.get_manual_progress_by_tile_id_and_team_id(tile.tile_id, team.team_id)
+    trigger_value += (
+        database.get_manual_progress_by_tile_id_and_team_id(
+            tile.tile_id,
+            team.team_id
+        )
+    )
 
-    trigger_value = trigger_value % tile.tile_triggers_required
+    tile_progress.progress_value = (
+        trigger_value % tile.tile_triggers_required
+    )
 
-    tile_progress.status_text = f"You are {trigger_value}/{tile.tile_triggers_required} kills away from completing this tile."
+    tile_progress.status_text = (
+        f"You have {tile_progress.progress_value}/"
+        f"{tile.tile_triggers_required} kills towards completing "
+        f"this tile."
+    )
 
     return tile_progress
 
@@ -120,13 +189,27 @@ def get_niche_progress(tile_progress):
     tile = tile_progress.tile
     team = tile_progress.team
 
-
-    total_progress = database.get_manual_progress_by_tile_id_and_team_id(tile.tile_id, team.team_id)
+    total_progress = (
+        database.get_manual_progress_by_tile_id_and_team_id(
+            tile.tile_id,
+            team.team_id
+        )
+    )
 
     if tile_progress.completions >= tile.tile_repetition:
-        tile_progress.status_text = f"You have fully completed this tile!"
+        tile_progress.progress_value = tile.tile_triggers_required
+        tile_progress.status_text = (
+            "You have fully completed this tile!"
+        )
     else:
-        tile_progress.status_text = f"You are {total_progress % tile.tile_triggers_required}/{tile.tile_triggers_required} away from completing this tile"
+        tile_progress.progress_value = (
+            total_progress % tile.tile_triggers_required
+        )
+        tile_progress.status_text = (
+            f"You have {tile_progress.progress_value}/"
+            f"{tile.tile_triggers_required} towards completing "
+            f"this tile."
+        )
 
     return tile_progress
 
@@ -135,18 +218,60 @@ def get_chat_progress(tile_progress):
     tile = tile_progress.tile
     team = tile_progress.team
 
+    chats = database.get_chats_by_team_id_and_tile_id(
+        team.team_id,
+        tile.tile_id
+    )
 
-    chats = database.get_chats_by_team_id_and_tile_id(team.team_id, tile.tile_id)
+    total_progress = (
+        len(chats)
+        + database.get_manual_progress_by_tile_id_and_team_id(
+            tile.tile_id,
+            team.team_id
+        )
+    )
 
-    total_progress = len(chats) + database.get_manual_progress_by_tile_id_and_team_id(tile.tile_id, team.team_id)
-
-    tile_progress.status_text = f"You are {total_progress % tile.tile_triggers_required}/{tile.tile_triggers_required} away from completing this tile"
+    if tile_progress.completions >= tile.tile_repetition:
+        tile_progress.progress_value = tile.tile_triggers_required
+        tile_progress.status_text = (
+            "You have fully completed this tile!"
+        )
+    else:
+        tile_progress.progress_value = (
+            total_progress % tile.tile_triggers_required
+        )
+        tile_progress.status_text = (
+            f"You have {tile_progress.progress_value}/"
+            f"{tile.tile_triggers_required} towards completing "
+            f"this tile."
+        )
 
     return tile_progress
 
 
 def get_pet_progress(tile_progress):
-    tile_progress.status_text = f"You have {database.get_total_pets_by_team(tile_progress.team.team_id)} total pets."
+    tile = tile_progress.tile
+    team = tile_progress.team
+
+    total_pets = database.get_total_pets_by_team(
+        team.team_id
+    )
+
+    if tile_progress.completions >= tile.tile_repetition:
+        tile_progress.progress_value = tile.tile_triggers_required
+        tile_progress.status_text = (
+            "You have fully completed this tile!"
+        )
+    else:
+        tile_progress.progress_value = (
+            total_pets % tile.tile_triggers_required
+        )
+        tile_progress.status_text = (
+            f"You have {tile_progress.progress_value}/"
+            f"{tile.tile_triggers_required} pets towards completing "
+            f"this tile."
+        )
+
     return tile_progress
 
 

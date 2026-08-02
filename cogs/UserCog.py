@@ -270,56 +270,162 @@ class UserCog(commands.Cog):
 
         await ctx.respond(tile_progress.status_text)
 
-    @discord.slash_command(name="board", description="Get a list of tiles you've already completed")
-    async def board(self, ctx:discord.ApplicationContext,
-                    team_name: discord.Option(str, "What is your team name?", autocomplete=lambda ctx: fuzzy_autocomplete(ctx, team_names())),
-                    board_type: discord.Option(str, "What kind of board would you like to see?", autocomplete=discord.utils.basic_autocomplete(["All Tiles","Completed Tiles","Incomplete Tiles", "Partial Tiles"]))):
+    @discord.slash_command(
+        name="board",
+        description="View your team's bingo board"
+    )
+    async def board(
+        self,
+        ctx: discord.ApplicationContext,
+        board_type: discord.Option(
+            str,
+            "Which version of the board would you like?",
+            autocomplete=discord.utils.basic_autocomplete(
+                [
+                    "All Tiles",
+                    "Completed Tiles",
+                    "Incomplete Tiles",
+                    "Partial Tiles"
+                ]
+            )
+        )
+    ):
         await ctx.defer()
-        response = f"## {board_type} for {team_name}\n"
-        team = db_entities.Team(database.get_team_by_name(team_name))
+
+        player_data = database.get_player_by_discord_user_id(
+            ctx.author.id
+        )
+
+        if player_data is None:
+            await ctx.respond(
+                "Your Discord account is not registered. "
+                "Use `/register` first."
+            )
+            return
+
+        player = db_entities.Player(player_data)
+
+        team_data = database.get_team_by_id(player.team_id)
+
+        if team_data is None:
+            await ctx.respond(
+                "Your registered bingo team could not be found. "
+                "Please contact an administrator."
+            )
+            return
+
+        team = db_entities.Team(team_data)
         tiles = database.get_tiles()
         completed_tiles = database.get_completed_tiles()
-        complete_tile_dict = defaultdict(int)
-        for tile in completed_tiles:
-            tile = db_entities.CompletedTile(tile)
-            if tile.team_id == team.team_id:
-                complete_tile_dict[tile.tile_id] = complete_tile_dict[tile.tile_id] + 1
 
-        if board_type == "All Tiles":
-            for tile in tiles:
-                tile = db_entities.Tile(tile)
-                if complete_tile_dict != 0:
-                    response = response + f"{tile.tile_name}: "
-                    for i in range(min(complete_tile_dict[tile.tile_id], tile.tile_repetition)):
-                        response = response + ":white_check_mark:"
-                    for i in range(0, tile.tile_repetition - complete_tile_dict[tile.tile_id]):
-                        response = response + ":x:"
-                    response = response + "\n"
-        elif board_type == "Completed Tiles":
-            for tile in tiles:
-                tile = db_entities.Tile(tile)
-                if complete_tile_dict[tile.tile_id] > 0:
-                    response = response + f"{tile.tile_name}: "
-                    for i in range(min(complete_tile_dict[tile.tile_id], tile.tile_repetition)):
-                        response = response + ":white_check_mark:"
-                    for i in range(0, tile.tile_repetition - complete_tile_dict[tile.tile_id]):
-                        response = response + ":x:"
-        elif board_type == "Incomplete Tiles":
-            for tile in tiles:
-                tile = db_entities.Tile(tile)
-                if complete_tile_dict[tile.tile_id] == 0:
-                    response = response + f"{tile.tile_name}: "
-                    for i in range(0, tile.tile_repetition - complete_tile_dict[tile.tile_id]):
-                        response = response + ":x:"
-                    response = response + "\n"
-        elif board_type == "Partial Tiles":
-            for tile in tiles:
-                tile = db_entities.Tile(tile)
-                progress = bingo.check_progress(tile, team)
-                if progress is not None:
-                    response = response + progress
+        completion_counts = defaultdict(int)
 
-        await ctx.respond(response)
+        for completed_tile_data in completed_tiles:
+            completed_tile = db_entities.CompletedTile(
+                completed_tile_data
+            )
+
+            if completed_tile.team_id == team.team_id:
+                completion_counts[completed_tile.tile_id] += 1
+
+        lines = []
+
+        for tile_data in tiles:
+            tile = db_entities.Tile(tile_data)
+            completions = completion_counts[tile.tile_id]
+
+            if board_type == "All Tiles":
+                completed_icons = (
+                    ":white_check_mark:"
+                    * min(completions, tile.tile_repetition)
+                )
+                incomplete_icons = (
+                    ":x:"
+                    * max(tile.tile_repetition - completions, 0)
+                )
+
+                lines.append(
+                    f"**{tile.tile_name}:** "
+                    f"{completed_icons}{incomplete_icons}"
+                )
+
+            elif board_type == "Completed Tiles":
+                if completions > 0:
+                    completed_icons = (
+                        ":white_check_mark:"
+                        * min(completions, tile.tile_repetition)
+                    )
+                    incomplete_icons = (
+                        ":x:"
+                        * max(tile.tile_repetition - completions, 0)
+                    )
+
+                    lines.append(
+                        f"**{tile.tile_name}:** "
+                        f"{completed_icons}{incomplete_icons}"
+                    )
+
+            elif board_type == "Incomplete Tiles":
+                if completions == 0:
+                    lines.append(
+                        f"**{tile.tile_name}:** "
+                        f"{':x:' * tile.tile_repetition}"
+                    )
+
+            elif board_type == "Partial Tiles":
+                if completions >= tile.tile_repetition:
+                    continue
+
+                tile_progress = bingo.get_progress(
+                    team.team_id,
+                    tile.tile_id
+                )
+
+                if (
+                    tile_progress is not None
+                    and tile_progress.progress_value > 0
+                ):
+                    status_text = tile_progress.status_text
+
+                    status_text = (
+                        status_text
+                        .replace("<p>", "")
+                        .replace("</p>", "")
+                        .replace("<ul>", "\n")
+                        .replace("</ul>", "")
+                        .replace("<li>", "• ")
+                        .replace("</li>", "\n")
+                        .strip()
+                    )
+
+                    lines.append(
+                        f"**{tile.tile_name}**\n{status_text}"
+                    )
+
+        if not lines:
+            lines.append(
+                "There are no tiles matching this board view."
+            )
+
+        header = f"## {board_type} for {team.team_name}"
+        messages = []
+        current_message = header
+
+        for line in lines:
+            addition = f"\n{line}"
+
+            if len(current_message) + len(addition) > 1900:
+                messages.append(current_message)
+                current_message = line
+            else:
+                current_message += addition
+
+        messages.append(current_message)
+
+        await ctx.respond(messages[0])
+
+        for message in messages[1:]:
+            await ctx.followup.send(message)
 
     @discord.slash_command(name="leaderboard", description="Show the current standings amongst teams and players")
     async def leaderboard(self, ctx: discord.ApplicationContext):
