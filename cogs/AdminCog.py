@@ -13,6 +13,51 @@ class AdminCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    @discord.slash_command(
+        name="set_team_role",
+        description="Links a Discord role to a bingo team"
+    )
+    @default_permissions(manage_webhooks=True)
+    @guild_only()
+    async def set_team_role(
+        self,
+        ctx: discord.ApplicationContext,
+        team_name: discord.Option(
+            str,
+            "Which bingo team is this role for?",
+            autocomplete=lambda ctx: fuzzy_autocomplete(ctx, team_names())
+        ),
+        role: discord.Option(
+            discord.Role,
+            "Which Discord role belongs to this team?"
+        )
+    ):
+        await ctx.defer()
+
+        team_data = database.get_team_by_name(team_name)
+        if team_data is None:
+            await ctx.respond(f"Unable to find team: {team_name}")
+            return
+
+        team = db_entities.Team(team_data)
+
+        existing_team_data = database.get_team_by_discord_role_id(role.id)
+        if existing_team_data is not None:
+            existing_team = db_entities.Team(existing_team_data)
+
+            if existing_team.team_id != team.team_id:
+                await ctx.respond(
+                    f"{role.mention} is already linked to "
+                    f"{existing_team.team_name}."
+                )
+                return
+
+        database.set_team_discord_role_id(team.team_id, role.id)
+
+        await ctx.respond(
+            f"{role.mention} is now linked to {team.team_name}."
+        )
+
     @discord.slash_command(name="add_player", description="Adds a player to the bingo")
     @default_permissions(manage_webhooks=True)
     @guild_only()

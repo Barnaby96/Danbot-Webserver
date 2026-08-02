@@ -18,7 +18,13 @@ from dotenv import load_dotenv
 load_dotenv()
 import bot
 
-from utils.database import add_user, get_user_by_email, check_password, get_user_by_id  # Import your database functions
+from utils.database import (
+    add_user,
+    get_user_by_email,
+    check_password,
+    get_user_by_id,
+    ensure_schema
+)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'development secret')
@@ -103,6 +109,7 @@ def create_app():
     return app
 
 if __name__ == "__main__":
+    ensure_schema()
     from waitress import serve
 
     print("Starting bot....")

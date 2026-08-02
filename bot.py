@@ -8,15 +8,14 @@ from cogs.SubmitRequestCog import SubmitRequestCog
 from cogs.UserCog import UserCog
 from discord.ext import commands
 
-bot = discord.Bot()
-token = os.getenv('DISCORD_BOT_TOKEN')
-
-
 approved_guilds = {
     int(guild_id.strip())
     for guild_id in os.getenv("APPROVED_GUILD_IDS", "").split(",")
     if guild_id.strip()
 }
+
+bot = discord.Bot(debug_guilds=list(approved_guilds))
+token = os.getenv('DISCORD_BOT_TOKEN')
 
 
 @bot.event

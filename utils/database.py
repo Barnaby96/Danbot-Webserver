@@ -19,6 +19,32 @@ def connect():
         port=os.getenv('PGPORT')
     )
 
+def ensure_schema():
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            ALTER TABLE players
+            ADD COLUMN IF NOT EXISTS discord_user_id BIGINT
+        ''')
+
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_players_discord_user_id
+            ON players (discord_user_id)
+            WHERE discord_user_id IS NOT NULL
+        ''')
+
+        cursor.execute('''
+            ALTER TABLE teams
+            ADD COLUMN IF NOT EXISTS discord_role_id BIGINT
+        ''')
+
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_discord_role_id
+            ON teams (discord_role_id)
+            WHERE discord_role_id IS NOT NULL
+        ''')
+
 # User authentication functions
 
 class User(UserMixin):
@@ -200,6 +226,27 @@ def get_team_by_name(team_name):
         cursor.execute("SELECT * FROM teams where lower(team_name) = lower(%s)", (team_name,))
         return cursor.fetchone()
 
+def get_team_by_discord_role_id(discord_role_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM teams WHERE discord_role_id = %s",
+            (discord_role_id,)
+        )
+        return cursor.fetchone()
+
+def set_team_discord_role_id(team_id, discord_role_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE teams
+            SET discord_role_id = %s
+            WHERE team_id = %s
+            """,
+            (discord_role_id, team_id)
+        )
+
 
 # Functions for 'players' table
 def add_player(player_name, deaths, gp_gained, tiles_completed, team_id, pet_count):
@@ -309,6 +356,26 @@ def get_player_by_id(player_id):
         cursor.execute("SELECT * FROM players where player_id = %s", (player_id,))
         return cursor.fetchone()
 
+def get_player_by_discord_user_id(discord_user_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM players WHERE discord_user_id = %s",
+            (discord_user_id,)
+        )
+        return cursor.fetchone()
+
+def link_player_to_discord(player_id, discord_user_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE players
+            SET discord_user_id = %s
+            WHERE player_id = %s
+            """,
+            (discord_user_id, player_id)
+        )
 
 # Functions for 'drops' table
 def add_drop(team_id, player_id, player_name, drop_name, drop_value, drop_quantity, drop_source):
@@ -924,9 +991,16 @@ def reset_tables():
                 team_name text,
                 team_points real,
                 team_webhook text,
-                team_id SERIAL PRIMARY KEY
+                team_id SERIAL PRIMARY KEY,
+                discord_role_id BIGINT
             )
             ''')
+
+    cursor.execute('''
+            CREATE UNIQUE INDEX idx_teams_discord_role_id
+            ON teams (discord_role_id)
+            WHERE discord_role_id IS NOT NULL
+        ''')
 
     cursor.execute('''
             CREATE TABLE players (
@@ -937,8 +1011,15 @@ def reset_tables():
                 tiles_completed real,
                 team_id integer,
                 pet_count integer,
+                discord_user_id BIGINT,
                 FOREIGN KEY(team_id) REFERENCES teams(team_id) ON DELETE CASCADE
             )
+            ''')
+
+    cursor.execute('''
+            CREATE UNIQUE INDEX idx_players_discord_user_id
+            ON players (discord_user_id)
+            WHERE discord_user_id IS NOT NULL
             ''')
 
     cursor.execute('''

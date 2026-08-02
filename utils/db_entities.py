@@ -7,6 +7,7 @@ class Player:
         self.tiles_completed = player_tuple[4]
         self.team_id = player_tuple[5]
         self.pet_count = player_tuple[6]
+        self.discord_user_id = player_tuple[7] if len(player_tuple) > 7 else None
 
 
 class Team:
@@ -15,6 +16,7 @@ class Team:
         self.team_points = team_tuple[1]
         self.team_webhook = team_tuple[2]
         self.team_id = team_tuple[3]
+        self.discord_role_id = team_tuple[4] if len(team_tuple) > 4 else None
 
 
 class Drop:
