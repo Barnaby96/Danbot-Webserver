@@ -8,6 +8,8 @@ from discord.ext import commands
 from utils import bingo, database, db_entities
 from utils.autocomplete import player_names, team_names, tile_names, fuzzy_autocomplete
 
+from utils.wom import WiseOldManError, get_group_member
+
 ftext = "\u001b["
 
 fnormal = "0;"
@@ -39,7 +41,115 @@ def setup_names():
 class UserCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+    
+    @discord.slash_command(
+        name="register",
+        description="Link your Discord account to your OSRS account"
+    )
+    async def register(
+        self,
+        ctx: discord.ApplicationContext,
+        rsn: discord.Option(str, "Your Old School RuneScape name")
+    ):
+        await ctx.defer(ephemeral=True)
 
+        existing_link = database.get_player_by_discord_user_id(ctx.author.id)
+        if existing_link is not None:
+            player = db_entities.Player(existing_link)
+            await ctx.respond(
+                f"Your Discord account is already linked to "
+                f"**{player.player_name}**.",
+                ephemeral=True
+            )
+            return
+
+        matched_teams = []
+
+        for role in ctx.author.roles:
+            team_data = database.get_team_by_discord_role_id(role.id)
+
+            if team_data is not None:
+                matched_teams.append(db_entities.Team(team_data))
+
+        if len(matched_teams) == 0:
+            await ctx.respond(
+                "You do not have a recognised bingo team role.",
+                ephemeral=True
+            )
+            return
+
+        if len(matched_teams) > 1:
+            await ctx.respond(
+                "You have more than one bingo team role. "
+                "Please ask an administrator to correct this.",
+                ephemeral=True
+            )
+            return
+
+        team = matched_teams[0]
+
+        try:
+            wom_player = get_group_member(rsn)
+        except WiseOldManError as error:
+            await ctx.respond(str(error), ephemeral=True)
+            return
+
+        if wom_player is None:
+            await ctx.respond(
+                f"**{rsn}** was not found in the configured "
+                f"Wise Old Man group.",
+                ephemeral=True
+            )
+            return
+
+        display_name = wom_player["displayName"]
+        player_data = database.get_player_by_name(display_name)
+
+        if player_data is None:
+            database.add_player(
+                display_name,
+                0,
+                0,
+                0,
+                team.team_id,
+                0
+            )
+            player_data = database.get_player_by_name(display_name)
+
+        player = db_entities.Player(player_data)
+
+        if player.team_id != team.team_id:
+            current_team = db_entities.Team(
+                database.get_team_by_id(player.team_id)
+            )
+
+            await ctx.respond(
+                f"**{display_name}** is currently assigned to "
+                f"**{current_team.team_name}**, but your Discord role "
+                f"is for **{team.team_name}**. Please contact an "
+                f"administrator.",
+                ephemeral=True
+            )
+            return
+
+        if player.discord_user_id is not None:
+            await ctx.respond(
+                f"**{display_name}** is already linked to another "
+                f"Discord account.",
+                ephemeral=True
+            )
+            return
+
+        database.link_player_to_discord(
+            player.player_id,
+            ctx.author.id
+        )
+
+        await ctx.respond(
+            f"Registration complete. Your Discord account is now "
+            f"linked to **{display_name}** on **{team.team_name}**.",
+            ephemeral=True
+        )
     @discord.slash_command(name="help", description="A list of all my cool commands!")
     async def help(self, ctx: discord.ApplicationContext):
         commands_info = {
