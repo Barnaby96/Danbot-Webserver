@@ -153,13 +153,34 @@ class UserCog(commands.Cog):
     @discord.slash_command(name="help", description="A list of all my cool commands!")
     async def help(self, ctx: discord.ApplicationContext):
         commands_info = {
-            "help": "A list of all my cool commands!",
-            "dink": "Use this command to get help setting up your dink plugin.",
-            "player": "Get a bunch of data about a player in the bingo.",
-            "team": "Get a bunch of data about a team in the bingo.",
-            "progress": "Check your progress on a specific tile.",
-            "board": "Get a list of tiles you've already completed.",
-            "leaderboard": "Show the current standings amongst teams and players."
+            "help": (
+                "Show this list of available commands."
+            ),
+            "register": (
+                "Link your Discord account to your OSRS account."
+            ),
+            "dink": (
+                "Get help setting up the Dink RuneLite plugin."
+            ),
+            "player": (
+                "View a player's bingo statistics."
+            ),
+            "team": (
+                "View a team's bingo statistics."
+            ),
+            "progress": (
+                "Check your team's progress on a specific tile."
+            ),
+            "board": (
+                "View your Discord-role team's board. "
+                "Bingo Organisers may inspect another team."
+            ),
+            "leaderboard": (
+                "Show the current team and player standings."
+            ),
+            "gear": (
+                "View available gear setups."
+            )
         }
 
         response = "**Here are all my available commands:**\n\n"
