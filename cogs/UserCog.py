@@ -675,33 +675,91 @@ class UserCog(commands.Cog):
                     "Partial Tiles"
                 ]
             )
+        ),
+        team_name: discord.Option(
+            str,
+            "Team to inspect — Bingo Organisers only",
+            autocomplete=lambda ctx: fuzzy_autocomplete(
+                ctx,
+                team_names()
+            ),
+            default=None
         )
     ):
+
         await ctx.defer()
 
         player_data = database.get_player_by_discord_user_id(
             ctx.author.id
         )
 
-        if player_data is None:
-            await ctx.respond(
-                "Your Discord account is not registered. "
-                "Use `/register` first."
+        organiser_role_id = os.getenv(
+            "BINGO_ORGANISER_ROLE_ID"
+        )
+
+        is_organiser = (
+            organiser_role_id is not None
+            and any(
+                str(role.id) == organiser_role_id
+                for role in ctx.author.roles
             )
-            return
+        )
 
-        player = db_entities.Player(player_data)
+        if team_name is not None:
+            if not is_organiser:
+                await ctx.respond(
+                    "Only Bingo Organisers can inspect another "
+                    "team's board."
+                )
+                return
 
-        team_data = database.get_team_by_id(player.team_id)
+            team_data = database.get_team_by_name(team_name)
 
-        if team_data is None:
-            await ctx.respond(
-                "Your registered bingo team could not be found. "
-                "Please contact an administrator."
-            )
-            return
+            if team_data is None:
+                await ctx.respond(
+                    f"Unable to find the team **{team_name}**."
+                )
+                return
 
-        team = db_entities.Team(team_data)
+            team = db_entities.Team(team_data)
+
+        else:
+            matched_teams = []
+
+            for role in ctx.author.roles:
+                team_data = (
+                    database.get_team_by_discord_role_id(
+                        role.id
+                    )
+                )
+
+                if team_data is not None:
+                    matched_teams.append(
+                        db_entities.Team(team_data)
+                    )
+
+            if len(matched_teams) == 0:
+                if is_organiser:
+                    await ctx.respond(
+                        "You do not have a bingo team role. "
+                        "Choose a team using the optional "
+                        "`team_name` field."
+                    )
+                else:
+                    await ctx.respond(
+                        "You do not have a recognised bingo "
+                        "team role."
+                    )
+                return
+
+            if len(matched_teams) > 1:
+                await ctx.respond(
+                    "You have more than one bingo team role. "
+                    "Please ask an administrator to correct this."
+                )
+                return
+
+            team = matched_teams[0]
         tiles = database.get_tiles()
         completed_tiles = database.get_completed_tiles()
 
