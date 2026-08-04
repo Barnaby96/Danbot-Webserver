@@ -175,13 +175,177 @@ class UserCog(commands.Cog):
         player_url = f"http://{server_ip}/tutorial/dink"
         await ctx.respond(player_url)
 
-    @discord.slash_command(name="player", description="Get a bunch of data about a player in the bingo")
-    async def player(self, ctx: discord.ApplicationContext,
-                     player_name: discord.Option(str, "What is the username?", autocomplete=lambda ctx: fuzzy_autocomplete(ctx, player_names()))):
+    @discord.slash_command(
+        name="player",
+        description="View a player's bingo statistics"
+    )
+    async def player(
+        self,
+        ctx: discord.ApplicationContext,
+        player_name: discord.Option(
+            str,
+            "Which player would you like to view?",
+            autocomplete=lambda ctx: fuzzy_autocomplete(
+                ctx,
+                player_names()
+            )
+        )
+    ):
         await ctx.defer()
-        server_ip = os.getenv('SERVER_IP')
-        player_url = f"http://{server_ip}/user/player/{player_name.replace(' ', '%20')}"
-        await ctx.respond(player_url)
+
+        player_data = database.get_player_by_name(player_name)
+
+        if player_data is None:
+            await ctx.respond(
+                f"Unable to find the player **{player_name}**."
+            )
+            return
+
+        player = db_entities.Player(player_data)
+
+        team_data = database.get_team_by_id(player.team_id)
+
+        if team_data is None:
+            team_name = "Unknown team"
+        else:
+            team_name = db_entities.Team(team_data).team_name
+
+        tile_count = round(float(player.tiles_completed), 2)
+
+        if tile_count.is_integer():
+            tile_count = int(tile_count)
+
+        partial_progress = 0
+
+        for partial_data in (
+            database.get_partial_completions_by_player_id(
+                player.player_id
+            )
+        ):
+            partial = db_entities.PartialCompletion(partial_data)
+            partial_progress += float(
+                partial.partial_completion
+            )
+
+        partial_progress = round(partial_progress, 2)
+
+        drop_totals = defaultdict(
+            lambda: {
+                "quantity": 0,
+                "value": 0
+            }
+        )
+
+        for drop_data in database.get_drops_by_player_id(
+            player.player_id
+        ):
+            drop = db_entities.Drop(drop_data)
+
+            drop_totals[drop.drop_name]["quantity"] += (
+                drop.drop_quantity
+            )
+            drop_totals[drop.drop_name]["value"] += (
+                drop.drop_value * drop.drop_quantity
+            )
+
+        sorted_drops = sorted(
+            drop_totals.items(),
+            key=lambda item: item[1]["value"],
+            reverse=True
+        )
+
+        drop_lines = []
+
+        for drop_name, drop_details in sorted_drops[:10]:
+            drop_lines.append(
+                f"**{drop_name}** x"
+                f"{drop_details['quantity']} - "
+                f"{scapify.int_to_gp(drop_details['value'])}"
+            )
+
+        killcounts = []
+
+        for killcount_data in (
+            database.get_killcount_by_player_id(
+                player.player_id
+            )
+        ):
+            killcounts.append(
+                db_entities.Killcount(killcount_data)
+            )
+
+        killcounts.sort(
+            key=lambda killcount: killcount.kills,
+            reverse=True
+        )
+
+        killcount_lines = [
+            f"**{killcount.boss_name}:** {killcount.kills}"
+            for killcount in killcounts[:10]
+        ]
+
+        relevant_drop_lines = []
+
+        for relevant_drop_data in (
+            database.get_relevant_drop_by_player_id(
+                player.player_id
+            )
+        ):
+            relevant_drop = db_entities.RelevantDrop(
+                relevant_drop_data
+            )
+
+            relevant_drop_lines.append(
+                f"**{relevant_drop.tile_name}:** "
+                f"{relevant_drop.drop_name}"
+            )
+
+        embed = discord.Embed(
+            title=player.player_name,
+            description=f"Team: **{team_name}**"
+        )
+
+        embed.add_field(
+            name="Bingo statistics",
+            value=(
+                f"Tiles completed: **{tile_count}**\n"
+                f"Partial progress: **{partial_progress}**\n"
+                f"GP gained: **"
+                f"{scapify.int_to_gp(player.gp_gained)}**\n"
+                f"Pets: **{player.pet_count}**\n"
+                f"Deaths: **{player.deaths}**"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="Top drops",
+            value=(
+                "\n".join(drop_lines)
+                if drop_lines
+                else "No drops recorded."
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="Kill counts",
+            value=(
+                "\n".join(killcount_lines)
+                if killcount_lines
+                else "No kill counts recorded."
+            ),
+            inline=False
+        )
+
+        if relevant_drop_lines:
+            embed.add_field(
+                name="Bingo-related drops",
+                value="\n".join(relevant_drop_lines[:10]),
+                inline=False
+            )
+
+        await ctx.respond(embed=embed)
 
     @discord.slash_command(name="team", description="Get a bunch of data about a team in the bingo")
     async def team(self, ctx: discord.ApplicationContext,
