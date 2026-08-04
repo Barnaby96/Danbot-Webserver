@@ -5,7 +5,7 @@ from collections import defaultdict
 import discord
 from discord.ext import commands
 
-from utils import bingo, database, db_entities
+from utils import bingo, database, db_entities, scapify
 from utils.autocomplete import player_names, team_names, tile_names, fuzzy_autocomplete
 
 from utils.wom import WiseOldManError, get_group_member
@@ -427,9 +427,115 @@ class UserCog(commands.Cog):
         for message in messages[1:]:
             await ctx.followup.send(message)
 
-    @discord.slash_command(name="leaderboard", description="Show the current standings amongst teams and players")
-    async def leaderboard(self, ctx: discord.ApplicationContext):
+    @discord.slash_command(
+        name="leaderboard",
+        description="Show the current team and player standings"
+    )
+    async def leaderboard(
+        self,
+        ctx: discord.ApplicationContext
+    ):
         await ctx.defer()
-        server_ip = os.getenv('SERVER_IP')
-        leaderboard_url = f"http://{server_ip}/user/leaderboard"
-        await ctx.respond(leaderboard_url)
+
+        players = [
+            db_entities.Player(player_data)
+            for player_data in database.get_players()
+        ]
+
+        teams = [
+            db_entities.Team(team_data)
+            for team_data in database.get_teams()
+        ]
+
+        team_gp = defaultdict(int)
+
+        for player in players:
+            team_gp[player.team_id] += player.gp_gained
+
+        teams.sort(
+            key=lambda team: (
+                team.team_points,
+                team_gp[team.team_id]
+            ),
+            reverse=True
+        )
+
+        players.sort(
+            key=lambda player: (
+                player.tiles_completed,
+                player.gp_gained
+            ),
+            reverse=True
+        )
+
+        team_lines = []
+
+        for position, team in enumerate(teams, start=1):
+            team_points = round(float(team.team_points), 2)
+
+            if team_points.is_integer():
+                team_points = int(team_points)
+
+            point_label = (
+                "point"
+                if team_points == 1
+                else "points"
+            )
+
+            team_lines.append(
+                f"**{position}. {team.team_name}** - "
+                f"{team_points} {point_label} | "
+                f"{scapify.int_to_gp(team_gp[team.team_id])}"
+            )
+
+        player_lines = []
+
+        for position, player in enumerate(players, start=1):
+            tile_count = round(float(player.tiles_completed), 2)
+
+            if tile_count.is_integer():
+                tile_count = int(tile_count)
+
+            tile_label = (
+                "tile"
+                if tile_count == 1
+                else "tiles"
+            )
+
+            player_lines.append(
+                f"**{position}. {player.player_name}** - "
+                f"{tile_count} {tile_label} | "
+                f"{scapify.int_to_gp(player.gp_gained)}"
+            )
+
+        if not team_lines:
+            team_lines.append("No teams have been created.")
+
+        if not player_lines:
+            player_lines.append("No players have been registered.")
+
+        sections = [
+            "## Team Standings\n" + "\n".join(team_lines),
+            "## Player Standings\n" + "\n".join(player_lines)
+        ]
+
+        messages = []
+        current_message = ""
+
+        for section in sections:
+            for line in section.splitlines():
+                addition = line + "\n"
+
+                if len(current_message) + len(addition) > 1900:
+                    messages.append(current_message.rstrip())
+                    current_message = addition
+                else:
+                    current_message += addition
+
+        if current_message:
+            messages.append(current_message.rstrip())
+
+        await ctx.respond(messages[0])
+
+        for message in messages[1:]:
+            await ctx.followup.send(message)
