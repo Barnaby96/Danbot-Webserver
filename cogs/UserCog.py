@@ -347,13 +347,236 @@ class UserCog(commands.Cog):
 
         await ctx.respond(embed=embed)
 
-    @discord.slash_command(name="team", description="Get a bunch of data about a team in the bingo")
-    async def team(self, ctx: discord.ApplicationContext,
-                   team_name: discord.Option(str, "What is the team name?", autocomplete=lambda ctx: fuzzy_autocomplete(ctx, team_names()))):
+    @discord.slash_command(
+        name="team",
+        description="View a team's bingo statistics"
+    )
+    async def team(
+        self,
+        ctx: discord.ApplicationContext,
+        team_name: discord.Option(
+            str,
+            "Which team would you like to view?",
+            autocomplete=lambda ctx: fuzzy_autocomplete(
+                ctx,
+                team_names()
+            )
+        )
+    ):
         await ctx.defer()
-        server_ip = os.getenv('SERVER_IP')
-        team_url = f"http://{server_ip}/user/team/{team_name.replace(' ', '%20')}"
-        await ctx.respond(team_url)
+
+        team_data = database.get_team_by_name(team_name)
+
+        if team_data is None:
+            await ctx.respond(
+                f"Unable to find the team **{team_name}**."
+            )
+            return
+
+        team = db_entities.Team(team_data)
+
+        players = [
+            db_entities.Player(player_data)
+            for player_data in database.get_players_by_team_id(
+                team.team_id
+            )
+        ]
+
+        players.sort(
+            key=lambda player: (
+                player.tiles_completed,
+                player.gp_gained
+            ),
+            reverse=True
+        )
+
+        total_gp = sum(player.gp_gained for player in players)
+        total_deaths = sum(player.deaths for player in players)
+        total_pets = sum(player.pet_count for player in players)
+        total_tiles = sum(
+            float(player.tiles_completed)
+            for player in players
+        )
+
+        total_tiles = round(total_tiles, 2)
+
+        if total_tiles.is_integer():
+            total_tiles = int(total_tiles)
+
+        partial_progress = 0
+
+        for partial_data in (
+            database.get_partial_completions_by_team_id(
+                team.team_id
+            )
+        ):
+            partial = db_entities.PartialCompletion(partial_data)
+            partial_progress += float(
+                partial.partial_completion
+            )
+
+        partial_progress = round(partial_progress, 2)
+
+        player_lines = []
+
+        for position, player in enumerate(players[:10], start=1):
+            tile_count = round(
+                float(player.tiles_completed),
+                2
+            )
+
+            if tile_count.is_integer():
+                tile_count = int(tile_count)
+
+            tile_label = (
+                "tile"
+                if tile_count == 1
+                else "tiles"
+            )
+
+            player_lines.append(
+                f"**{position}. {player.player_name}** - "
+                f"{tile_count} tiles | "
+                f"{scapify.int_to_gp(player.gp_gained)}"
+            )
+
+        drop_totals = defaultdict(
+            lambda: {
+                "quantity": 0,
+                "value": 0
+            }
+        )
+
+        for drop_data in database.get_drops_by_team_id(
+            team.team_id
+        ):
+            drop = db_entities.Drop(drop_data)
+
+            drop_totals[drop.drop_name]["quantity"] += (
+                drop.drop_quantity
+            )
+            drop_totals[drop.drop_name]["value"] += (
+                drop.drop_value * drop.drop_quantity
+            )
+
+        sorted_drops = sorted(
+            drop_totals.items(),
+            key=lambda item: item[1]["value"],
+            reverse=True
+        )
+
+        drop_lines = []
+
+        for drop_name, drop_details in sorted_drops[:10]:
+            drop_lines.append(
+                f"**{drop_name}** x"
+                f"{drop_details['quantity']} - "
+                f"{scapify.int_to_gp(drop_details['value'])}"
+            )
+
+        killcount_totals = defaultdict(int)
+
+        for killcount_data in database.get_killcount_by_team_id(
+            team.team_id
+        ):
+            killcount = db_entities.Killcount(
+                killcount_data
+            )
+
+            killcount_totals[killcount.boss_name] += (
+                killcount.kills
+            )
+
+        sorted_killcounts = sorted(
+            killcount_totals.items(),
+            key=lambda item: item[1],
+            reverse=True
+        )
+
+        killcount_lines = [
+            f"**{boss_name}:** {kills}"
+            for boss_name, kills in sorted_killcounts[:10]
+        ]
+
+        relevant_drop_lines = []
+
+        for relevant_drop_data in (
+            database.get_relevant_drop_by_team_id(
+                team.team_id
+            )
+        ):
+            relevant_drop = db_entities.RelevantDrop(
+                relevant_drop_data
+            )
+
+            relevant_drop_lines.append(
+                f"**{relevant_drop.tile_name}:** "
+                f"{relevant_drop.drop_name} "
+                f"({relevant_drop.player_name})"
+            )
+
+        team_points = round(float(team.team_points), 2)
+
+        if team_points.is_integer():
+            team_points = int(team_points)
+
+        embed = discord.Embed(
+            title=team.team_name,
+            description=f"Bingo points: **{team_points}**"
+        )
+
+        embed.add_field(
+            name="Team statistics",
+            value=(
+                f"Players: **{len(players)}**\n"
+                f"Tiles completed: **{total_tiles}**\n"
+                f"Partial progress: **{partial_progress}**\n"
+                f"GP gained: **"
+                f"{scapify.int_to_gp(total_gp)}**\n"
+                f"Pets: **{total_pets}**\n"
+                f"Deaths: **{total_deaths}**"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="Player standings",
+            value=(
+                "\n".join(player_lines)
+                if player_lines
+                else "No players are assigned to this team."
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="Top drops",
+            value=(
+                "\n".join(drop_lines)
+                if drop_lines
+                else "No drops recorded."
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="Kill counts",
+            value=(
+                "\n".join(killcount_lines)
+                if killcount_lines
+                else "No kill counts recorded."
+            ),
+            inline=False
+        )
+
+        if relevant_drop_lines:
+            embed.add_field(
+                name="Bingo-related drops",
+                value="\n".join(relevant_drop_lines[:10]),
+                inline=False
+            )
+
+        await ctx.respond(embed=embed)
 
 
     @discord.slash_command(name="gear", description="View our catalog of gear setups for any content and budget")
