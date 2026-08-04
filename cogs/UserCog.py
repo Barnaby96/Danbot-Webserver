@@ -189,12 +189,20 @@ class UserCog(commands.Cog):
 
         await ctx.respond(response)
 
-    @discord.slash_command(name="dink", description="Use this command to get help setting up your dink plugin")
-    async def dink(self, ctx:discord.ApplicationContext):
-        await ctx.defer()
-        server_ip = os.getenv('SERVER_IP')
-        player_url = f"http://{server_ip}/tutorial/dink"
-        await ctx.respond(player_url)
+    @discord.slash_command(
+        name="dink",
+        description="Get help setting up the Dink RuneLite plugin"
+    )
+    async def dink(
+        self,
+        ctx: discord.ApplicationContext
+    ):
+        await ctx.respond(
+            "Dink tracking is not currently enabled on this "
+            "development server.\n\n"
+            "Once DanBot is publicly hosted, Bingo Organisers will "
+            "provide the correct Dink import settings."
+        )
 
     @discord.slash_command(
         name="player",
