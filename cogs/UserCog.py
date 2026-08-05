@@ -177,9 +177,6 @@ class UserCog(commands.Cog):
             ),
             "leaderboard": (
                 "Show the current team and player standings."
-            ),
-            "gear": (
-                "View available gear setups."
             )
         }
 
@@ -607,28 +604,6 @@ class UserCog(commands.Cog):
 
         await ctx.respond(embed=embed)
 
-
-    @discord.slash_command(name="gear", description="View our catalog of gear setups for any content and budget")
-    async def gear(self, ctx: discord.ApplicationContext,
-                   setup: discord.Option(str, "What setup are you looking for?",
-                                         autocomplete=lambda ctx: fuzzy_autocomplete(ctx, setup_names())),
-                   budget: discord.Option(str, "Max or budget gear?",
-                                          autocomplete=lambda ctx: fuzzy_autocomplete(ctx, ["budget", "max"]), default=None)):
-        await ctx.defer()
-        if budget is None:
-            await ctx.respond(f""
-                              f"# {setup.upper()}\n"
-                              f"### BUDGET {setup.upper()}\n"
-                              f"https://danbot.up.railway.app/static/images/setups/{setup}/budget.png\n"
-                              f"### MAX {setup.upper()}\n"
-                              f"https://danbot.up.railway.app/static/images/setups/{setup}/max.png\n")
-        elif budget.lower() == "max":
-            await ctx.respond(f"# MAX {setup.upper()}\n"
-                              f"https://danbot.up.railway.app/static/images/setups/{setup}/max.png\n")
-        elif budget.lower() == "budget":
-            await ctx.respond(f"# BUDGET {setup.upper()}\n"
-                              f"https://danbot.up.railway.app/static/images/setups/{setup}/budget.png\n")
-        return
 
     @discord.slash_command(
         name="progress",
