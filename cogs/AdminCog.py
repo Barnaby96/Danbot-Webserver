@@ -214,16 +214,6 @@ class AdminCog(commands.Cog):
                           f"NOTE: I did not remove any points during this operation! Please use /remove_team_points if required")
 
 
-    @discord.slash_command(name="run_query", description="DANGER! IF YOU'RE NOT DANBIS OR DON'T KNOW WHAT YOUR DOING DON'T RUN THIS COMMAND")
-    @default_permissions(manage_webhooks=True)
-    @guild_only()
-    async def run_query(self, ctx:discord.ApplicationContext,
-                        query: discord.Option(str)):
-        await ctx.defer()
-        with database.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
-            await ctx.respond(f"Executed query: ```{query}```\nResponse data: ```{cursor.fetchall()}```")
 
     @discord.slash_command(name="remove_manual_progress", description="Remove tile progress from a tile")
     @default_permissions(manage_webhooks=True)
