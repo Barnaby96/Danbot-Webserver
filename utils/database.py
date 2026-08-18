@@ -50,6 +50,47 @@ def ensure_schema():
             WHERE discord_role_id IS NOT NULL
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bingo_config (
+                config_id SMALLINT PRIMARY KEY
+                    CHECK (config_id = 1),
+                wom_competition_id BIGINT
+            )
+        ''')
+
+
+def get_wom_competition_id():
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT wom_competition_id
+            FROM bingo_config
+            WHERE config_id = 1
+        ''')
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    return row[0]
+
+
+def set_wom_competition_id(competition_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO bingo_config (
+                config_id,
+                wom_competition_id
+            )
+            VALUES (1, %s)
+            ON CONFLICT (config_id)
+            DO UPDATE SET
+                wom_competition_id = EXCLUDED.wom_competition_id
+        ''', (competition_id,))
+        conn.commit()
+
+
 # User authentication functions
 
 class User(UserMixin):
@@ -1004,6 +1045,14 @@ def reset_tables():
             email text UNIQUE NOT NULL,
             password text NOT NULL,
             is_admin boolean NOT NULL DEFAULT FALSE
+        )
+        ''')
+
+    cursor.execute('''
+        CREATE TABLE bingo_config (
+            config_id SMALLINT PRIMARY KEY
+                CHECK (config_id = 1),
+            wom_competition_id BIGINT
         )
         ''')
 
