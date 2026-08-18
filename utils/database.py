@@ -35,6 +35,11 @@ def ensure_schema():
         ''')
 
         cursor.execute('''
+            ALTER TABLE players
+            ADD COLUMN IF NOT EXISTS player_points DOUBLE PRECISION NOT NULL DEFAULT 0
+        ''')
+
+        cursor.execute('''
             ALTER TABLE teams
             ADD COLUMN IF NOT EXISTS discord_role_id BIGINT
         ''')
@@ -293,6 +298,16 @@ def add_player_tile_completions(player_id, tiles_completed):
             SET tiles_completed = tiles_completed + %s
             WHERE player_id = %s
         ''', (tiles_completed, player_id))
+
+def add_player_points(player_id, points):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE players
+            SET player_points = player_points + %s
+            WHERE player_id = %s
+        ''', (points, player_id))
+        conn.commit()
 
 
 def rename_player(old_player_name, new_player_name):
@@ -1020,6 +1035,7 @@ def reset_tables():
                 team_id integer,
                 pet_count integer,
                 discord_user_id BIGINT,
+                player_points DOUBLE PRECISION NOT NULL DEFAULT 0,
                 FOREIGN KEY(team_id) REFERENCES teams(team_id) ON DELETE CASCADE
             )
             ''')

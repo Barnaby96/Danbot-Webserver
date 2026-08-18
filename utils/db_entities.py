@@ -8,6 +8,7 @@ class Player:
         self.team_id = player_tuple[5]
         self.pet_count = player_tuple[6]
         self.discord_user_id = player_tuple[7] if len(player_tuple) > 7 else None
+        self.player_points = player_tuple[8] if len(player_tuple) > 8 else 0
 
 
 class Team:
