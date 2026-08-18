@@ -106,25 +106,32 @@ def update_tile(tile_id,new_tile_id, tile_name, tile_type, old_tile_triggers, ti
 
         conn.commit()
 
-    old_trigger_set = set()
-    for x in old_tile_triggers.split(','):
-        for trigger in x.split('/'):
-            old_trigger_set.add(trigger)
+    if tile_type == "DROP":
+        old_trigger_set = set()
+        for x in old_tile_triggers.split(','):
+            for trigger in x.split('/'):
+                old_trigger_set.add(trigger.strip())
 
-    new_trigger_set = set()
-    for x in tile_triggers.split(','):
-        for trigger in x.split('/'):
-            add_drop_whitelist(trigger, tile_id)
-            new_trigger_set.add(trigger)
+        new_trigger_set = set()
+        for x in tile_triggers.split(','):
+            for trigger in x.split('/'):
+                trigger = trigger.strip()
+                add_drop_whitelist(trigger, new_tile_id)
+                new_trigger_set.add(trigger)
 
-    for trigger in new_trigger_set:
-        if trigger not in old_trigger_set:
-            drops = get_drops_by_item_name(trigger.strip())
-            for drop in drops:
-                drop = db_entities.Drop(drop)
-                remove_drop_by_pk(drop.drop_pk)
-                json_data = spoof_drop.award_drop_json(drop.player_name, drop.drop_name, drop.drop_value, drop.drop_quantity)
-                result = dink.parse_loot(json_data, None)
+        for trigger in new_trigger_set:
+            if trigger not in old_trigger_set:
+                drops = get_drops_by_item_name(trigger)
+                for drop in drops:
+                    drop = db_entities.Drop(drop)
+                    remove_drop_by_pk(drop.drop_pk)
+                    json_data = spoof_drop.award_drop_json(
+                        drop.player_name,
+                        drop.drop_name,
+                        drop.drop_value,
+                        drop.drop_quantity
+                    )
+                    dink.parse_loot(json_data, None)
 
 
 def remove_drop_by_pk(drop_pk):
@@ -560,9 +567,10 @@ def add_tile(tile_name, tile_type, tile_triggers, tile_trigger_weights, tile_uni
             (available_id, tile_name, tile_type, tile_triggers, tile_trigger_weights, tile_unique_drops,
              tile_triggers_required, tile_repetition, tile_points, tile_rules))
         conn.commit()
-    for x in tile_triggers.split(','):
-        for trigger in x.split('/'):
-            add_drop_whitelist(trigger.strip(), available_id)
+    if tile_type == "DROP":
+        for x in tile_triggers.split(','):
+            for trigger in x.split('/'):
+                add_drop_whitelist(trigger.strip(), available_id)
 
 
 
