@@ -4,6 +4,13 @@ from routes.admin.admin_routes import admin_required
 from utils.database import update_tile, remove_tile, get_tile_by_id, add_tile, get_tiles
 
 tile_routes = Blueprint("tile_management", __name__)
+ALLOWED_TILE_TYPES = {
+    "DROP",
+    "PET",
+    "KILLCOUNT",
+    "EXPERIENCE",
+    "MANUAL",
+}
 @tile_routes.route('/tiles', methods=['GET'])
 @admin_required
 def tile_list():
@@ -16,6 +23,9 @@ def create_tile():
     if request.method == 'POST':
         tile_name = request.form.get('tile_name')
         tile_type = request.form.get('tile_type')
+        if tile_type not in ALLOWED_TILE_TYPES:
+            flash('Invalid tile type.', 'danger')
+            return redirect(url_for('tile_management.create_tile'))
         tile_triggers = request.form.get('tile_triggers')
         tile_trigger_weights = request.form.get('tile_trigger_weights')
         tile_unique_drops = request.form.get('tile_unique_drops')
@@ -41,6 +51,9 @@ def edit_tile(tile_id):
         new_tile_id = request.form.get('tile_id')
         tile_name = request.form.get('tile_name')
         tile_type = request.form.get('tile_type')
+        if tile_type not in ALLOWED_TILE_TYPES:
+            flash('Invalid tile type.', 'danger')
+            return redirect(url_for('tile_management.edit_tile', tile_id=tile_id))
         tile_triggers = request.form.get('tile_triggers')
         tile_trigger_weights = request.form.get('tile_trigger_weights')
         tile_unique_drops = request.form.get('tile_unique_drops')

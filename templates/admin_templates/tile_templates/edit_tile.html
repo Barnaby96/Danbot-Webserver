@@ -18,11 +18,10 @@
             <label for="tile_type" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Type:</label>
             <select id="tile_type" name="tile_type" required style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
                 <option value="DROP" {% if tile[2] == "DROP" %}selected{% endif %}>DROP</option>
-                <option value="KILLCOUNT" {% if tile[2] == "KILLCOUNT" %}selected{% endif %}>KILLCOUNT</option>
-                <option value="SET" {% if tile[2] == "SET" %}selected{% endif %}>SET</option>
-                <option value="CHAT" {% if tile[2] == "CHAT" %}selected{% endif %}>CHAT</option>
                 <option value="PET" {% if tile[2] == "PET" %}selected{% endif %}>PET</option>
-                <option value="NICHE" {% if tile[2] == "NICHE" %}selected{% endif %}>NICHE</option>
+                <option value="KILLCOUNT" {% if tile[2] == "KILLCOUNT" %}selected{% endif %}>KILLCOUNT</option>
+                <option value="EXPERIENCE" {% if tile[2] == "EXPERIENCE" %}selected{% endif %}>EXPERIENCE</option>
+                <option value="MANUAL" {% if tile[2] == "MANUAL" %}selected{% endif %}>MANUAL</option>
             </select>
         </div>
 
