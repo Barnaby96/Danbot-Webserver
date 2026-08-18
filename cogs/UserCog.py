@@ -1,5 +1,4 @@
 import os
-import urllib
 from collections import defaultdict
 
 import discord
@@ -23,18 +22,6 @@ fblue = "34m"
 fwhite = "37m"
 fend = ftext + "0m"
 
-import os
-
-def setup_names():
-    folder_path = 'static/images/setups'
-    folder_names = []
-
-    for item_name in os.listdir(folder_path):
-        item_path = os.path.join(folder_path, item_name)
-        if os.path.isdir(item_path):
-            folder_names.append(item_name)
-
-    return folder_names
 
 
 
