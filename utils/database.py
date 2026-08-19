@@ -121,6 +121,71 @@ def set_wom_competition_id(competition_id):
         conn.commit()
 
 
+def get_wom_last_processed_gain(
+    competition_id,
+    player_id,
+    metric
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT last_processed_gain
+            FROM wom_metric_state
+            WHERE competition_id = %s
+              AND player_id = %s
+              AND lower(metric) = lower(%s)
+            ''',
+            (
+                competition_id,
+                player_id,
+                metric
+            )
+        )
+        row = cursor.fetchone()
+
+    if row is None:
+        return 0
+
+    return row[0]
+
+
+def set_wom_last_processed_gain(
+    competition_id,
+    player_id,
+    metric,
+    last_processed_gain
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO wom_metric_state (
+                competition_id,
+                player_id,
+                metric,
+                last_processed_gain
+            )
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (
+                competition_id,
+                player_id,
+                metric
+            )
+            DO UPDATE SET
+                last_processed_gain =
+                    EXCLUDED.last_processed_gain
+            ''',
+            (
+                competition_id,
+                player_id,
+                metric.lower(),
+                last_processed_gain
+            )
+        )
+        conn.commit()
+
+
 def import_wom_competition(
     competition_id,
     teams,
