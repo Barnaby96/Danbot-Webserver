@@ -132,12 +132,36 @@ def board(team_name):
     panelData = {}
     tile_id_to_name = {}
 
-    # Find team, if it doesn't exist make an empty none team
-    try:
-        team = database.get_team_by_name(team_name)
-        team = db_entities.Team(team)
-    except:
-        team = db_entities.Team(("None", 0, None, -1))
+    # Validate the requested team.
+    team_row = database.get_team_by_name(team_name)
+
+    if team_row is None:
+        available_teams = database.get_teams()
+
+        if available_teams:
+            fallback_team = db_entities.Team(
+                available_teams[0]
+            )
+
+            resp = redirect(
+                url_for(
+                    'board_routes.board',
+                    team_name=fallback_team.team_name
+                )
+            )
+
+            resp.set_cookie(
+                'teamname',
+                fallback_team.team_name
+            )
+
+            return resp
+
+        team = db_entities.Team(
+            ("None", 0, None, -1)
+        )
+    else:
+        team = db_entities.Team(team_row)
 
     # get list of teams for the dropdown menu
     teams = []

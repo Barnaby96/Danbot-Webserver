@@ -4,11 +4,13 @@
 
 <style>
     table {
-        width: 80%; /* Adjust this value */
-        margin: auto; /* Add this line to center the table */
+        width: 80%;
+        max-width: 700px;
+        margin: auto;
         border-collapse: collapse;
+        table-layout: fixed;
         margin-top: 20px;
-        color: #FFFFFF; /* Light text */
+        color: #FFFFFF;
     }
     th {
         background-color: #333333; /* Darker background for navbar */
@@ -22,7 +24,6 @@
     td {
         border: 1px solid #ddd;
         text-align: center;
-        height: 80px;
     }
     tr:nth-child(even) {
         background-color: #1E1E1E;
@@ -35,6 +36,7 @@
         }
     .header {
         width: 80%;
+        max-width: 700px;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -65,13 +67,24 @@
 
     td button {
         display: block;
-        width: 100%; /* Set width to 100% */
-        height: 100%; /* Set height to 100% */
+        width: 100%;
+        height: auto;
+        aspect-ratio: 1 / 1;
+        box-sizing: border-box;
+        padding: 4px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        text-align: center;
+        font-size: clamp(10px, 3vw, 16px);
+        line-height: 1.05;
     }
 
     .side-panel {
         height: 100%;
         width: 0;
+        max-width: 100vw;
+        box-sizing: border-box;
         position: fixed;
         z-index: 1;
         top: 0;
