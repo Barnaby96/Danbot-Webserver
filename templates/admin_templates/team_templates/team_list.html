@@ -75,6 +75,7 @@
                 <th>Name</th>
                 <th>Points</th>
                 <th>Webhook</th>
+                <th>Discord Role</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -86,6 +87,13 @@
                 <td>{{ team[1] }}</td>
                 <td>
                     {% if team[2] %}
+                        Configured
+                    {% else %}
+                        Not configured
+                    {% endif %}
+                </td>
+                <td>
+                    {% if team[4] %}
                         Configured
                     {% else %}
                         Not configured
