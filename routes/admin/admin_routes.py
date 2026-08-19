@@ -6,7 +6,7 @@ from flask_login import current_user, login_required
 from werkzeug.utils import secure_filename
 
 from routes import dink
-from utils import database, db_entities
+from utils import database, db_entities, wom
 from utils.database import get_player_names, get_tile_names, get_tiles
 from utils.spoofed_jsons.spoof_chat import spoof_chat
 from utils.spoofed_jsons.spoof_drop import award_drop_json
@@ -27,6 +27,125 @@ def admin_required(f):
 @admin_required
 def home():
     return render_template('admin_templates/admin_home.html')
+
+
+@admin_routes.route('/bingo_setup', methods=['GET', 'POST'])
+@admin_required
+def bingo_setup():
+    competition_id = database.get_wom_competition_id()
+    competition = None
+    teams = {}
+    participant_count = 0
+    conflicts = []
+
+    if request.method == 'POST':
+        competition_id = request.form.get(
+            'competition_id',
+            ''
+        ).strip()
+
+        action = request.form.get('action', 'preview')
+
+        try:
+            competition = wom.get_competition_details(
+                competition_id
+            )
+        except wom.WiseOldManError as error:
+            flash(str(error), 'danger')
+            return render_template(
+                'admin_templates/bingo_setup.html',
+                competition_id=competition_id,
+                competition=None,
+                teams={},
+                participant_count=0,
+                conflicts=[]
+            )
+
+        if competition.get('type') != 'team':
+            flash(
+                'The selected Wise Old Man competition is not '
+                'a team competition.',
+                'danger'
+            )
+            return render_template(
+                'admin_templates/bingo_setup.html',
+                competition_id=competition_id,
+                competition=None,
+                teams={},
+                participant_count=0,
+                conflicts=[]
+            )
+
+        participations = competition.get(
+            'participations'
+        ) or []
+
+        for participation in participations:
+            team_name = str(
+                participation.get('teamName') or ''
+            ).strip()
+
+            player = participation.get('player') or {}
+
+            player_name = str(
+                player.get('displayName')
+                or player.get('username')
+                or ''
+            ).strip()
+
+            if not team_name or not player_name:
+                continue
+
+            teams.setdefault(
+                team_name,
+                []
+            ).append(player_name)
+
+            participant_count += 1
+
+        if participant_count == 0:
+            flash(
+                'No valid team participants were found in '
+                'this competition.',
+                'danger'
+            )
+            competition = None
+
+        elif action == 'import':
+            result = database.import_wom_competition(
+                competition_id,
+                teams
+            )
+
+            if not result['imported']:
+                conflicts = result['conflicts']
+
+                flash(
+                    'The competition could not be imported '
+                    'because some existing players are assigned '
+                    'to different teams.',
+                    'danger'
+                )
+            else:
+                flash(
+                    (
+                        'Competition imported successfully. '
+                        f"{result['teams_created']} teams created, "
+                        f"{result['players_created']} players created "
+                        f"and {result['players_reused']} existing "
+                        'players reused.'
+                    ),
+                    'success'
+                )
+
+    return render_template(
+        'admin_templates/bingo_setup.html',
+        competition_id=competition_id,
+        competition=competition,
+        teams=teams,
+        participant_count=participant_count,
+        conflicts=conflicts
+    )
 
 
 @admin_routes.route('/submit_a_tile', methods=['GET', 'POST'])

@@ -91,6 +91,177 @@ def set_wom_competition_id(competition_id):
         conn.commit()
 
 
+def import_wom_competition(competition_id, teams):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        conflicts = []
+
+        # Check every existing player before changing anything.
+        for team_name, player_names in teams.items():
+            cursor.execute(
+                '''
+                SELECT team_id
+                FROM teams
+                WHERE lower(team_name) = lower(%s)
+                ''',
+                (team_name,)
+            )
+            team_row = cursor.fetchone()
+            target_team_id = team_row[0] if team_row else None
+
+            for player_name in player_names:
+                cursor.execute(
+                    '''
+                    SELECT player_id, team_id
+                    FROM players
+                    WHERE lower(player_name) = lower(%s)
+                    ''',
+                    (player_name,)
+                )
+                player_row = cursor.fetchone()
+
+                if player_row is None:
+                    continue
+
+                existing_team_id = player_row[1]
+
+                if target_team_id is None:
+                    cursor.execute(
+                        '''
+                        SELECT team_name
+                        FROM teams
+                        WHERE team_id = %s
+                        ''',
+                        (existing_team_id,)
+                    )
+                    existing_team = cursor.fetchone()
+
+                    conflicts.append({
+                        "player_name": player_name,
+                        "wom_team": team_name,
+                        "danbot_team": (
+                            existing_team[0]
+                            if existing_team
+                            else "None"
+                        )
+                    })
+
+                elif existing_team_id != target_team_id:
+                    cursor.execute(
+                        '''
+                        SELECT team_name
+                        FROM teams
+                        WHERE team_id = %s
+                        ''',
+                        (existing_team_id,)
+                    )
+                    existing_team = cursor.fetchone()
+
+                    conflicts.append({
+                        "player_name": player_name,
+                        "wom_team": team_name,
+                        "danbot_team": (
+                            existing_team[0]
+                            if existing_team
+                            else "None"
+                        )
+                    })
+
+        if conflicts:
+            return {
+                "imported": False,
+                "conflicts": conflicts
+            }
+
+        teams_created = 0
+        players_created = 0
+        players_reused = 0
+
+        for team_name, player_names in teams.items():
+            cursor.execute(
+                '''
+                SELECT team_id
+                FROM teams
+                WHERE lower(team_name) = lower(%s)
+                ''',
+                (team_name,)
+            )
+            team_row = cursor.fetchone()
+
+            if team_row is None:
+                cursor.execute(
+                    '''
+                    INSERT INTO teams (
+                        team_name,
+                        team_points,
+                        team_webhook
+                    )
+                    VALUES (%s, 0, NULL)
+                    RETURNING team_id
+                    ''',
+                    (team_name,)
+                )
+                team_id = cursor.fetchone()[0]
+                teams_created += 1
+            else:
+                team_id = team_row[0]
+
+            for player_name in player_names:
+                cursor.execute(
+                    '''
+                    SELECT player_id
+                    FROM players
+                    WHERE lower(player_name) = lower(%s)
+                    ''',
+                    (player_name,)
+                )
+                player_row = cursor.fetchone()
+
+                if player_row is None:
+                    cursor.execute(
+                        '''
+                        INSERT INTO players (
+                            player_name,
+                            deaths,
+                            gp_gained,
+                            tiles_completed,
+                            team_id,
+                            pet_count
+                        )
+                        VALUES (%s, 0, 0, 0, %s, 0)
+                        ''',
+                        (player_name, team_id)
+                    )
+                    players_created += 1
+                else:
+                    players_reused += 1
+
+        cursor.execute(
+            '''
+            INSERT INTO bingo_config (
+                config_id,
+                wom_competition_id
+            )
+            VALUES (1, %s)
+            ON CONFLICT (config_id)
+            DO UPDATE SET
+                wom_competition_id = EXCLUDED.wom_competition_id
+            ''',
+            (competition_id,)
+        )
+
+        conn.commit()
+
+    return {
+        "imported": True,
+        "conflicts": [],
+        "teams_created": teams_created,
+        "players_created": players_created,
+        "players_reused": players_reused
+    }
+
+
 # User authentication functions
 
 class User(UserMixin):

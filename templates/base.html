@@ -170,7 +170,23 @@
         }
 
         .flash_text {
-            color: red;
+            text-align: center;
+        }
+
+        .flash_text.success {
+            color: #7bd88f;
+        }
+
+        .flash_text.danger {
+            color: #ff6b6b;
+        }
+
+        .flash_text.warning {
+            color: #ffd166;
+        }
+
+        .flash_text.info {
+            color: #6cb6ff;
         }
 
         button:hover {
@@ -296,6 +312,7 @@
                     <a href="/team/teams">Manage Teams</a>
                     <a href="/player/players">Manage Players</a>
                     <a href="/tile/tiles">Manage Tiles</a>
+                    <a href="/admin/bingo_setup">Bingo Setup</a>
                     <a href="/admin/submit_a_tile">Submit Data</a>
                     <a href="/admin/reset_database">Reset Databases</a>
                 </div>
@@ -327,10 +344,10 @@
         {% block content %}
         {% endblock %}
 
-        {% with messages = get_flashed_messages() %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                {% for message in messages %}
-                    <p class="flash_text">{{ message }}</p>
+                {% for category, message in messages %}
+                    <p class="flash_text {{ category }}">{{ message }}</p>
                 {% endfor %}
             {% endif %}
         {% endwith %}
