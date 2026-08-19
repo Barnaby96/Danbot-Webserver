@@ -4,7 +4,7 @@ from routes.admin.admin_routes import admin_required
 from utils import db_entities
 from utils.database import add_team, get_teams, get_team_by_id, remove_team, rename_team, add_team_points, \
     update_team_webhook, get_players_by_team_id, remove_player, get_drops_by_team_id, remove_drop, remove_drop_by_pk, \
-    get_partial_completions_by_team_id
+    get_partial_completions_by_team_id, get_team_by_discord_role_id, set_team_discord_role_id
 
 team_routes = Blueprint("team_routes", __name__)
 
@@ -37,6 +37,47 @@ def edit_team(team_id):
         new_team_name = request.form.get('team_name')
         team_points = request.form.get('team_points', 0)
         team_webhook = request.form.get('team_webhook')
+        discord_role_id = request.form.get(
+            'discord_role_id',
+            ''
+        ).strip()
+
+        if discord_role_id:
+            try:
+                discord_role_id = int(discord_role_id)
+            except ValueError:
+                flash(
+                    'Discord Role ID must be a number.',
+                    'danger'
+                )
+                return redirect(
+                    url_for(
+                        'team_routes.edit_team',
+                        team_id=team_id
+                    )
+                )
+
+            existing_team = get_team_by_discord_role_id(
+                discord_role_id
+            )
+
+            if (
+                existing_team is not None
+                and existing_team[3] != team_id
+            ):
+                flash(
+                    'That Discord role is already assigned '
+                    'to another team.',
+                    'danger'
+                )
+                return redirect(
+                    url_for(
+                        'team_routes.edit_team',
+                        team_id=team_id
+                    )
+                )
+        else:
+            discord_role_id = None
 
         # Renaming team
         rename_team(team.team_name, new_team_name)
@@ -46,6 +87,10 @@ def edit_team(team_id):
 
         # update webhook
         update_team_webhook(team_id, team_webhook)
+        set_team_discord_role_id(
+            team_id,
+            discord_role_id
+        )
 
         flash('Team updated successfully!', 'success')
         return redirect(url_for('team_routes.team_list'))

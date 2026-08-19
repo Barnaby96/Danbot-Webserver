@@ -470,6 +470,7 @@ def set_team_discord_role_id(team_id, discord_role_id):
             """,
             (discord_role_id, team_id)
         )
+        conn.commit()
 
 
 # Functions for 'players' table

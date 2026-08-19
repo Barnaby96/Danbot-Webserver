@@ -14,8 +14,35 @@
     </div>
 
     <div style="margin-bottom: 15px;">
-        <label for="team_webhook" style="display: block; margin-bottom: 5px; color: #ccc;">Team Webhook:</label>
-        <input type="text" id="team_webhook" name="team_webhook" value="{{ team.team_webhook }}" required style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
+        <label for="team_webhook"
+            style="display: block; margin-bottom: 5px; color: #ccc;">
+            Team Webhook:
+        </label>
+
+        <input type="text"
+            id="team_webhook"
+            name="team_webhook"
+            value="{{ team.team_webhook or '' }}"
+            style="width: 100%; padding: 10px; border: 1px solid #444;
+                    border-radius: 5px; background-color: #333; color: #ccc;
+                    box-sizing: border-box;">
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <label for="discord_role_id"
+            style="display: block; margin-bottom: 5px; color: #ccc;">
+            Discord Role ID:
+        </label>
+
+        <input type="number"
+            id="discord_role_id"
+            name="discord_role_id"
+            min="1"
+            value="{{ team.discord_role_id or '' }}"
+            placeholder="e.g. 1528813346185285652"
+            style="width: 100%; padding: 10px; border: 1px solid #444;
+                    border-radius: 5px; background-color: #333; color: #ccc;
+                    box-sizing: border-box;">
     </div>
 
     <button type="submit" style="width: 100%; padding: 10px; background-color: #444; color: #fff; border: none; border-radius: 5px; font-size: 16px; cursor: pointer;">Update Team</button>
