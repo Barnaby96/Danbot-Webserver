@@ -35,6 +35,7 @@ def bingo_setup():
     competition_id = database.get_wom_competition_id()
     competition = None
     teams = {}
+    wom_player_ids = {}
     participant_count = 0
     conflicts = []
 
@@ -93,6 +94,11 @@ def bingo_setup():
                 or ''
             ).strip()
 
+            wom_player_id = participation.get('playerId')
+
+            if wom_player_id is None:
+                wom_player_id = player.get('id')
+
             if not team_name or not player_name:
                 continue
 
@@ -100,6 +106,11 @@ def bingo_setup():
                 team_name,
                 []
             ).append(player_name)
+
+            if wom_player_id is not None:
+                wom_player_ids[player_name.lower()] = int(
+                    wom_player_id
+                )
 
             participant_count += 1
 
@@ -114,7 +125,8 @@ def bingo_setup():
         elif action == 'import':
             result = database.import_wom_competition(
                 competition_id,
-                teams
+                teams,
+                wom_player_ids
             )
 
             if not result['imported']:

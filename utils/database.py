@@ -39,6 +39,36 @@ def ensure_schema():
             ADD COLUMN IF NOT EXISTS player_points DOUBLE PRECISION NOT NULL DEFAULT 0
         ''')
 
+
+        cursor.execute('''
+                ALTER TABLE players
+            ADD COLUMN IF NOT EXISTS wom_player_id BIGINT
+        ''')
+
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_players_wom_player_id
+            ON players (wom_player_id)
+            WHERE wom_player_id IS NOT NULL
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS wom_metric_state (
+                competition_id BIGINT NOT NULL,
+                player_id INTEGER NOT NULL,
+                metric TEXT NOT NULL,
+                last_processed_gain BIGINT NOT NULL DEFAULT 0,
+                PRIMARY KEY (
+                    competition_id,
+                    player_id,
+                    metric
+                ),
+                FOREIGN KEY (player_id)
+                    REFERENCES players(player_id)
+                    ON DELETE CASCADE
+            )
+        ''')
+
+
         cursor.execute('''
             ALTER TABLE teams
             ADD COLUMN IF NOT EXISTS discord_role_id BIGINT
@@ -91,7 +121,13 @@ def set_wom_competition_id(competition_id):
         conn.commit()
 
 
-def import_wom_competition(competition_id, teams):
+def import_wom_competition(
+    competition_id,
+    teams,
+    wom_player_ids=None
+):
+    if wom_player_ids is None:
+        wom_player_ids = {}
     with connect() as conn:
         cursor = conn.cursor()
 
@@ -111,20 +147,119 @@ def import_wom_competition(competition_id, teams):
             target_team_id = team_row[0] if team_row else None
 
             for player_name in player_names:
-                cursor.execute(
-                    '''
-                    SELECT player_id, team_id
-                    FROM players
-                    WHERE lower(player_name) = lower(%s)
-                    ''',
-                    (player_name,)
+                wom_player_id = wom_player_ids.get(
+                    player_name.lower()
                 )
-                player_row = cursor.fetchone()
+
+                player_row = None
+
+                # A WOM player ID is the strongest identity match.
+                if wom_player_id is not None:
+                    cursor.execute(
+                        '''
+                        SELECT
+                            player_id,
+                            team_id,
+                            wom_player_id,
+                            player_name
+                        FROM players
+                        WHERE wom_player_id = %s
+                        ''',
+                        (wom_player_id,)
+                    )
+                    player_row = cursor.fetchone()
+
+                # Fall back to the RuneScape name for players imported
+                # before WOM IDs were stored.
+                if player_row is None:
+                    cursor.execute(
+                        '''
+                        SELECT
+                            player_id,
+                            team_id,
+                            wom_player_id,
+                            player_name
+                        FROM players
+                        WHERE lower(player_name) = lower(%s)
+                        ''',
+                        (player_name,)
+                    )
+                    player_row = cursor.fetchone()
 
                 if player_row is None:
                     continue
 
+                # Prevent a WOM-identified player being renamed to a name
+                # already used by a different DanBot player.
+                cursor.execute(
+                    '''
+                    SELECT player_id
+                    FROM players
+                    WHERE lower(player_name) = lower(%s)
+                    AND player_id != %s
+                    ''',
+                    (
+                        player_name,
+                        player_row[0]
+                    )
+                )
+
+                name_owner = cursor.fetchone()
+
+                if name_owner is not None:
+                    conflicts.append({
+                        "player_name": player_name,
+                        "wom_team": team_name,
+                        "danbot_team": (
+                            "RuneScape name already belongs to "
+                            "another DanBot player"
+                        )
+                    })
+                    continue
+
                 existing_team_id = player_row[1]
+                existing_wom_player_id = player_row[2]
+
+                if (
+                    wom_player_id is not None
+                    and existing_wom_player_id is not None
+                    and existing_wom_player_id != wom_player_id
+                ):
+                    conflicts.append({
+                        "player_name": player_name,
+                        "wom_team": team_name,
+                        "danbot_team": "WOM identity mismatch"
+                    })
+                    continue
+
+                # Protect against one WOM account being attached to
+                # two different DanBot player records.
+                if wom_player_id is not None:
+                    cursor.execute(
+                        '''
+                        SELECT player_id, player_name
+                        FROM players
+                        WHERE wom_player_id = %s
+                        AND player_id != %s
+                        ''',
+                        (
+                            wom_player_id,
+                            player_row[0]
+                        )
+                    )
+
+                    wom_id_owner = cursor.fetchone()
+
+                    if wom_id_owner is not None:
+                        conflicts.append({
+                            "player_name": player_name,
+                            "wom_team": team_name,
+                            "danbot_team": (
+                                f"WOM ID already belongs to "
+                                f"{wom_id_owner[1]}"
+                            )
+                        })
+                        continue
 
                 if target_team_id is None:
                     cursor.execute(
@@ -208,15 +343,39 @@ def import_wom_competition(competition_id, teams):
                 team_id = team_row[0]
 
             for player_name in player_names:
-                cursor.execute(
-                    '''
-                    SELECT player_id
-                    FROM players
-                    WHERE lower(player_name) = lower(%s)
-                    ''',
-                    (player_name,)
+                wom_player_id = wom_player_ids.get(
+                    player_name.lower()
                 )
-                player_row = cursor.fetchone()
+
+                player_row = None
+
+                if wom_player_id is not None:
+                    cursor.execute(
+                        '''
+                        SELECT
+                            player_id,
+                            player_name,
+                            wom_player_id
+                        FROM players
+                        WHERE wom_player_id = %s
+                        ''',
+                        (wom_player_id,)
+                    )
+                    player_row = cursor.fetchone()
+
+                if player_row is None:
+                    cursor.execute(
+                        '''
+                        SELECT
+                            player_id,
+                            player_name,
+                            wom_player_id
+                        FROM players
+                        WHERE lower(player_name) = lower(%s)
+                        ''',
+                        (player_name,)
+                    )
+                    player_row = cursor.fetchone()
 
                 if player_row is None:
                     cursor.execute(
@@ -227,14 +386,40 @@ def import_wom_competition(competition_id, teams):
                             gp_gained,
                             tiles_completed,
                             team_id,
-                            pet_count
+                            pet_count,
+                            wom_player_id
                         )
-                        VALUES (%s, 0, 0, 0, %s, 0)
+                        VALUES (%s, 0, 0, 0, %s, 0, %s)
                         ''',
-                        (player_name, team_id)
+                        (
+                            player_name,
+                            team_id,
+                            wom_player_id
+                        )
                     )
                     players_created += 1
+
                 else:
+                    player_id = player_row[0]
+
+                    cursor.execute(
+                        '''
+                        UPDATE players
+                        SET
+                            player_name = %s,
+                            wom_player_id = COALESCE(
+                                wom_player_id,
+                                %s
+                            )
+                        WHERE player_id = %s
+                        ''',
+                        (
+                            player_name,
+                            wom_player_id,
+                            player_id
+                        )
+                    )
+
                     players_reused += 1
 
         cursor.execute(
@@ -582,6 +767,20 @@ def get_player_by_name(player_name):
     with connect() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM players where lower(player_name) = lower(%s)", (player_name,))
+        return cursor.fetchone()
+
+
+def get_player_by_wom_player_id(wom_player_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT *
+            FROM players
+            WHERE wom_player_id = %s
+            ''',
+            (wom_player_id,)
+        )
         return cursor.fetchone()
 
 
@@ -1257,6 +1456,7 @@ def reset_tables():
                 pet_count integer,
                 discord_user_id BIGINT,
                 player_points DOUBLE PRECISION NOT NULL DEFAULT 0,
+                wom_player_id BIGINT,
                 FOREIGN KEY(team_id) REFERENCES teams(team_id) ON DELETE CASCADE
             )
             ''')
@@ -1265,6 +1465,30 @@ def reset_tables():
             CREATE UNIQUE INDEX idx_players_discord_user_id
             ON players (discord_user_id)
             WHERE discord_user_id IS NOT NULL
+            ''')
+
+
+    cursor.execute('''
+            CREATE UNIQUE INDEX idx_players_wom_player_id
+            ON players (wom_player_id)
+            WHERE wom_player_id IS NOT NULL
+            ''')
+
+    cursor.execute('''
+            CREATE TABLE wom_metric_state (
+                competition_id BIGINT NOT NULL,
+                player_id INTEGER NOT NULL,
+                metric TEXT NOT NULL,
+                last_processed_gain BIGINT NOT NULL DEFAULT 0,
+                PRIMARY KEY (
+                    competition_id,
+                    player_id,
+                    metric
+                ),
+                FOREIGN KEY (player_id)
+                    REFERENCES players(player_id)
+                    ON DELETE CASCADE
+            )
             ''')
 
     cursor.execute('''
