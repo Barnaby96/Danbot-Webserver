@@ -96,6 +96,17 @@ def ensure_schema():
 
 
         cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_partial_completions_player_team_tile
+            ON partial_completions (
+                player_id,
+                team_id,
+                tile_id
+            )
+        ''')
+
+
+        cursor.execute('''
             ALTER TABLE teams
             ADD COLUMN IF NOT EXISTS discord_role_id BIGINT
         ''')
@@ -1777,6 +1788,16 @@ def reset_tables():
                 FOREIGN KEY(team_id) REFERENCES teams(team_id) ON DELETE CASCADE,
                 FOREIGN KEY(tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE,
                 FOREIGN KEY(player_id) REFERENCES players(player_id) ON DELETE CASCADE
+            )
+            ''')
+
+    cursor.execute('''
+            CREATE UNIQUE INDEX
+                idx_partial_completions_player_team_tile
+            ON partial_completions (
+                player_id,
+                team_id,
+                tile_id
             )
             ''')
 
