@@ -70,6 +70,32 @@ def ensure_schema():
 
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tile_conditions (
+                condition_id SERIAL PRIMARY KEY,
+                tile_id INTEGER NOT NULL,
+                completion_path INTEGER NOT NULL,
+                condition_type TEXT NOT NULL,
+                condition_trigger TEXT,
+                target BIGINT NOT NULL DEFAULT 1,
+                FOREIGN KEY (tile_id)
+                    REFERENCES tiles(tile_id)
+                    ON DELETE CASCADE,
+                CHECK (completion_path >= 1),
+                CHECK (target > 0),
+                CHECK (
+                    condition_type IN (
+                        'KILLCOUNT',
+                        'EXPERIENCE',
+                        'DROP',
+                        'PET',
+                        'MANUAL'
+                    )
+                )
+            )
+        ''')
+
+
+        cursor.execute('''
             ALTER TABLE teams
             ADD COLUMN IF NOT EXISTS discord_role_id BIGINT
         ''')
@@ -1596,6 +1622,31 @@ def reset_tables():
                 tile_rules text
             )
             ''')
+
+    cursor.execute('''
+            CREATE TABLE tile_conditions (
+                condition_id SERIAL PRIMARY KEY,
+                tile_id INTEGER NOT NULL,
+                completion_path INTEGER NOT NULL,
+                condition_type TEXT NOT NULL,
+                condition_trigger TEXT,
+                target BIGINT NOT NULL DEFAULT 1,
+                FOREIGN KEY (tile_id)
+                    REFERENCES tiles(tile_id)
+                    ON DELETE CASCADE,
+                CHECK (completion_path >= 1),
+                CHECK (target > 0),
+                CHECK (
+                    condition_type IN (
+                        'KILLCOUNT',
+                        'EXPERIENCE',
+                        'DROP',
+                        'PET',
+                        'MANUAL'
+                    )
+                )
+            )
+        ''')
 
     cursor.execute('''
             CREATE TABLE drop_whitelist (
