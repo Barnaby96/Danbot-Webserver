@@ -1091,6 +1091,71 @@ def add_tile(tile_name, tile_type, tile_triggers, tile_trigger_weights, tile_uni
                 add_drop_whitelist(trigger.strip(), available_id)
 
 
+def add_tile_condition(
+    tile_id,
+    completion_path,
+    condition_type,
+    condition_trigger,
+    target=1
+):
+    condition_type = str(condition_type).strip().upper()
+
+    if condition_trigger is not None:
+        condition_trigger = str(condition_trigger).strip()
+
+        if condition_trigger == "":
+            condition_trigger = None
+
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO tile_conditions (
+                tile_id,
+                completion_path,
+                condition_type,
+                condition_trigger,
+                target
+            )
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING condition_id
+            ''',
+            (
+                tile_id,
+                completion_path,
+                condition_type,
+                condition_trigger,
+                target
+            )
+        )
+        condition_id = cursor.fetchone()[0]
+        conn.commit()
+
+    return condition_id
+
+
+def get_tile_conditions(tile_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT
+                condition_id,
+                tile_id,
+                completion_path,
+                condition_type,
+                condition_trigger,
+                target
+            FROM tile_conditions
+            WHERE tile_id = %s
+            ORDER BY
+                completion_path,
+                condition_id
+            ''',
+            (tile_id,)
+        )
+        return cursor.fetchall()
+
 
 def update_tile_trigger(tile_id, tile_trigger):
     with connect() as conn:
