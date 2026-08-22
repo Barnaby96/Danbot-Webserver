@@ -1323,6 +1323,196 @@ def get_partial_completions_by_player_id(player_id):
         cursor.execute("SELECT * FROM partial_completions WHERE player_id = %s", (player_id,))
         return cursor.fetchall()
 
+
+def complete_tile_with_contributions(
+    team_id,
+    tile_id,
+    finisher_player_id=None
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT tile_points
+            FROM tiles
+            WHERE tile_id = %s
+            ''',
+            (tile_id,)
+        )
+        tile_row = cursor.fetchone()
+
+        if tile_row is None:
+            raise ValueError(
+                f"Tile {tile_id} does not exist."
+            )
+
+        tile_points = float(tile_row[0])
+
+        # Claim the completion first. The unique index means that
+        # only one process can ever successfully complete this tile
+        # for this team.
+        cursor.execute(
+            '''
+            INSERT INTO completed_tiles (
+                tile_id,
+                team_id
+            )
+            VALUES (%s, %s)
+            ON CONFLICT (team_id, tile_id)
+            DO NOTHING
+            RETURNING completed_tile_pk
+            ''',
+            (
+                tile_id,
+                team_id
+            )
+        )
+
+        if cursor.fetchone() is None:
+            return False
+
+        cursor.execute(
+            '''
+            SELECT
+                player_id,
+                partial_completion
+            FROM partial_completions
+            WHERE team_id = %s
+              AND tile_id = %s
+            ORDER BY partial_completion_pk
+            FOR UPDATE
+            ''',
+            (
+                team_id,
+                tile_id
+            )
+        )
+
+        contributions = {
+            player_id: float(partial_completion)
+            for player_id, partial_completion
+            in cursor.fetchall()
+        }
+
+        banked_total = sum(contributions.values())
+
+        if banked_total < 0:
+            raise ValueError(
+                "Tile contribution cannot be negative."
+            )
+
+        # Allow only tiny floating-point rounding differences.
+        if banked_total > 1.000001:
+            raise ValueError(
+                "Banked tile contribution exceeds 100%."
+            )
+
+        if banked_total > 1:
+            scale = 1 / banked_total
+            contributions = {
+                player_id: contribution * scale
+                for player_id, contribution
+                in contributions.items()
+            }
+            banked_total = 1.0
+
+        if finisher_player_id is not None:
+            remaining = round(
+                max(
+                    0.0,
+                    1.0 - banked_total
+                ),
+                12
+            )
+
+            contributions[finisher_player_id] = round(
+                contributions.get(
+                    finisher_player_id,
+                    0.0
+                )
+                + remaining,
+                12
+            )
+
+        elif banked_total < 0.999999:
+            raise ValueError(
+                "Tile has not reached 100% contribution."
+            )
+
+        elif banked_total != 1.0:
+            scale = 1 / banked_total
+            contributions = {
+                player_id: contribution * scale
+                for player_id, contribution
+                in contributions.items()
+            }
+
+        for player_id, contribution in contributions.items():
+            if contribution <= 0:
+                continue
+
+            cursor.execute(
+                '''
+                UPDATE players
+                SET
+                    tiles_completed =
+                        tiles_completed + %s,
+                    player_points =
+                        player_points + %s
+                WHERE player_id = %s
+                  AND team_id = %s
+                RETURNING player_id
+                ''',
+                (
+                    contribution,
+                    contribution * tile_points,
+                    player_id,
+                    team_id
+                )
+            )
+
+            if cursor.fetchone() is None:
+                raise ValueError(
+                    f"Player {player_id} is not on "
+                    f"team {team_id}."
+                )
+
+        cursor.execute(
+            '''
+            UPDATE teams
+            SET team_points = team_points + %s
+            WHERE team_id = %s
+            RETURNING team_id
+            ''',
+            (
+                tile_points,
+                team_id
+            )
+        )
+
+        if cursor.fetchone() is None:
+            raise ValueError(
+                f"Team {team_id} does not exist."
+            )
+
+        cursor.execute(
+            '''
+            DELETE FROM partial_completions
+            WHERE team_id = %s
+              AND tile_id = %s
+            ''',
+            (
+                team_id,
+                tile_id
+            )
+        )
+
+        conn.commit()
+
+    return True
+
+
 def remove_partial_completion(partial_completion_pk):
     with connect() as conn:
         cursor = conn.cursor()
