@@ -5,6 +5,7 @@ from utils.database import (
     remove_tile,
     get_tile_by_id,
     get_tile_conditions,
+    get_tile_completion_paths,
     add_tile_with_conditions,
     update_tile_with_conditions,
     get_tiles
@@ -46,6 +47,16 @@ def create_tile():
             'condition_target'
         )
 
+        route_completion_paths = request.form.getlist(
+            'route_completion_path'
+        )
+        route_modes = request.form.getlist(
+            'route_mode'
+        )
+        route_targets = request.form.getlist(
+            'route_target'
+        )
+
         if not tile_name:
             flash('Tile name is required.', 'danger')
             return redirect(
@@ -68,7 +79,23 @@ def create_tile():
                 url_for('tile_management.create_tile')
             )
 
+        route_count = len(route_modes)
+
+        if not (
+            route_count
+            == len(route_completion_paths)
+            == len(route_targets)
+        ):
+            flash(
+                'The completion routes were not submitted correctly.',
+                'danger'
+            )
+            return redirect(
+                url_for('tile_management.create_tile')
+            )
+
         conditions = []
+        route_definitions = []
 
         try:
             for index in range(condition_count):
@@ -85,11 +112,48 @@ def create_tile():
                     }
                 )
 
+            for index in range(route_count):
+                route_number = int(
+                    route_completion_paths[index]
+                )
+
+                route_mode = str(
+                    route_modes[index]
+                ).strip().upper()
+
+                if route_mode == "ALL":
+                    route_target = None
+                else:
+                    route_target = int(
+                        route_targets[index]
+                    )
+
+                require_unique = (
+                    request.form.get(
+                        f'route_require_unique_{route_number}'
+                    )
+                    is not None
+                )
+
+                route_definitions.append(
+                    {
+                        "completion_path":
+                            route_number,
+                        "route_mode":
+                            route_mode,
+                        "route_target":
+                            route_target,
+                        "require_unique":
+                            require_unique
+                    }
+                )
+
             add_tile_with_conditions(
                 tile_name,
                 float(tile_points),
                 tile_rules,
-                conditions
+                conditions,
+                completion_paths=route_definitions
             )
 
         except (TypeError, ValueError, KeyError) as error:
@@ -155,6 +219,18 @@ def edit_tile(tile_id):
             'condition_target'
         )
 
+        route_completion_paths = request.form.getlist(
+            'route_completion_path'
+        )
+
+        route_modes = request.form.getlist(
+            'route_mode'
+        )
+
+        route_targets = request.form.getlist(
+            'route_target'
+        )
+
         if not tile_name:
             flash('Tile name is required.', 'danger')
             return redirect(
@@ -183,7 +259,26 @@ def edit_tile(tile_id):
                 )
             )
 
+        route_count = len(route_modes)
+
+        if not (
+            route_count
+            == len(route_completion_paths)
+            == len(route_targets)
+        ):
+            flash(
+                'The completion routes were not submitted correctly.',
+                'danger'
+            )
+            return redirect(
+                url_for(
+                    'tile_management.edit_tile',
+                    tile_id=tile_id
+                )
+            )
+
         conditions = []
+        route_definitions = []
 
         try:
             for index in range(condition_count):
@@ -200,12 +295,49 @@ def edit_tile(tile_id):
                     }
                 )
 
+            for index in range(route_count):
+                route_number = int(
+                    route_completion_paths[index]
+                )
+
+                route_mode = str(
+                    route_modes[index]
+                ).strip().upper()
+
+                if route_mode == "ALL":
+                    route_target = None
+                else:
+                    route_target = int(
+                        route_targets[index]
+                    )
+
+                require_unique = (
+                    request.form.get(
+                        f'route_require_unique_{route_number}'
+                    )
+                    is not None
+                )
+
+                route_definitions.append(
+                    {
+                        "completion_path":
+                            route_number,
+                        "route_mode":
+                            route_mode,
+                        "route_target":
+                            route_target,
+                        "require_unique":
+                            require_unique
+                    }
+                )
+
             update_tile_with_conditions(
                 tile_id,
                 tile_name,
                 float(tile_points),
                 tile_rules,
-                conditions
+                conditions,
+                completion_paths=route_definitions
             )
 
         except (TypeError, ValueError, KeyError) as error:
@@ -227,11 +359,15 @@ def edit_tile(tile_id):
         )
 
     conditions = get_tile_conditions(tile_id)
+    completion_paths = get_tile_completion_paths(
+        tile_id
+    )
 
     return render_template(
         'admin_templates/tile_templates/edit_tile.html',
         tile=tile,
-        conditions=conditions
+        conditions=conditions,
+        completion_paths=completion_paths
     )
 
 @tile_routes.route('/tiles/delete/<int:tile_id>', methods=['POST'])

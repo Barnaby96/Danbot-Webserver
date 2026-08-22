@@ -86,6 +86,7 @@ def ensure_schema():
                     condition_type IN (
                         'KILLCOUNT',
                         'EXPERIENCE',
+                        'METRIC',
                         'DROP',
                         'PET',
                         'MANUAL'
@@ -94,6 +95,115 @@ def ensure_schema():
             )
         ''')
 
+        cursor.execute('''
+            ALTER TABLE tile_conditions
+            DROP CONSTRAINT IF EXISTS
+                tile_conditions_condition_type_check
+        ''')
+
+        cursor.execute('''
+            ALTER TABLE tile_conditions
+            ADD CONSTRAINT
+                tile_conditions_condition_type_check
+            CHECK (
+                condition_type IN (
+                    'KILLCOUNT',
+                    'EXPERIENCE',
+                    'METRIC',
+                    'DROP',
+                    'PET',
+                    'MANUAL'
+                )
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tile_completion_paths (
+                tile_id INTEGER NOT NULL,
+                completion_path INTEGER NOT NULL,
+                route_mode TEXT NOT NULL DEFAULT 'ALL',
+                route_target BIGINT,
+                require_unique BOOLEAN NOT NULL DEFAULT FALSE,
+                PRIMARY KEY (
+                    tile_id,
+                    completion_path
+                ),
+                FOREIGN KEY (tile_id)
+                    REFERENCES tiles(tile_id)
+                    ON DELETE CASCADE,
+                CHECK (completion_path >= 1),
+                CHECK (
+                    route_mode IN (
+                        'ALL',
+                        'SUM',
+                        'N_OF'
+                    )
+                ),
+                CHECK (
+                    (
+                        route_mode = 'ALL'
+                        AND route_target IS NULL
+                    )
+                    OR
+                    (
+                        route_mode IN ('SUM', 'N_OF')
+                        AND route_target > 0
+                    )
+                ),
+                CHECK (
+                    route_mode = 'N_OF'
+                    OR require_unique = FALSE
+                )
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tile_condition_progress (
+                team_id INTEGER NOT NULL,
+                condition_id INTEGER NOT NULL,
+                progress BIGINT NOT NULL DEFAULT 0,
+                PRIMARY KEY (
+                    team_id,
+                    condition_id
+                ),
+                FOREIGN KEY (team_id)
+                    REFERENCES teams(team_id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (condition_id)
+                    REFERENCES tile_conditions(condition_id)
+                    ON DELETE CASCADE,
+                CHECK (progress >= 0)
+            )
+        ''')
+
+        cursor.execute('''
+            INSERT INTO tile_completion_paths (
+                tile_id,
+                completion_path,
+                route_mode,
+                route_target,
+                require_unique
+            )
+            SELECT DISTINCT
+                tile_id,
+                completion_path,
+                'ALL',
+                NULL::BIGINT,
+                FALSE
+            FROM tile_conditions
+            ON CONFLICT (
+                tile_id,
+                completion_path
+            )
+            DO NOTHING
+        ''')
+
+        cursor.execute('''
+            ALTER TABLE partial_completions
+            ALTER COLUMN partial_completion
+            TYPE NUMERIC(18, 12)
+            USING partial_completion::NUMERIC(18, 12)
+        ''')
 
         cursor.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS
@@ -196,6 +306,94 @@ def get_wom_last_processed_gain(
     return row[0]
 
 
+def _bank_partial_contribution(
+    cursor,
+    player_id,
+    team_id,
+    tile_id,
+    requested_contribution
+):
+    requested_contribution = float(
+        requested_contribution
+    )
+
+    if requested_contribution < 0:
+        raise ValueError(
+            "Tile contribution cannot be negative."
+        )
+
+    cursor.execute(
+        '''
+        SELECT COALESCE(
+            SUM(partial_completion),
+            0
+        )
+        FROM partial_completions
+        WHERE team_id = %s
+          AND tile_id = %s
+        ''',
+        (
+            team_id,
+            tile_id
+        )
+    )
+
+    banked_before = float(
+        cursor.fetchone()[0]
+    )
+
+    remaining = round(
+        max(
+            0.0,
+            1.0 - banked_before
+        ),
+        12
+    )
+
+    contribution = round(
+        min(
+            remaining,
+            requested_contribution
+        ),
+        12
+    )
+
+    if contribution > 0:
+        cursor.execute(
+            '''
+            INSERT INTO partial_completions (
+                player_id,
+                team_id,
+                tile_id,
+                partial_completion
+            )
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (
+                player_id,
+                team_id,
+                tile_id
+            )
+            DO UPDATE SET
+                partial_completion =
+                    partial_completions.partial_completion
+                    + EXCLUDED.partial_completion
+            ''',
+            (
+                player_id,
+                team_id,
+                tile_id,
+                contribution
+            )
+        )
+
+    banked_after = round(
+        banked_before + contribution,
+        12
+    )
+
+    return contribution, banked_after
+
+
 def apply_wom_metric_progress(
     competition_id,
     player_id,
@@ -209,11 +407,12 @@ def apply_wom_metric_progress(
 
     if condition_type not in {
         "KILLCOUNT",
-        "EXPERIENCE"
+        "EXPERIENCE",
+        "METRIC"
     }:
         raise ValueError(
             "WOM progress can only be applied to "
-            "KILLCOUNT or EXPERIENCE conditions."
+            "KILLCOUNT, EXPERIENCE or METRIC conditions."
         )
 
     if current_gain < 0:
@@ -293,13 +492,19 @@ def apply_wom_metric_progress(
         cursor.execute(
             '''
             SELECT
-                condition_id,
-                tile_id,
-                target
-            FROM tile_conditions
-            WHERE condition_type = %s
-              AND lower(condition_trigger) = %s
-            ORDER BY tile_id, condition_id
+                c.condition_id,
+                c.tile_id,
+                c.completion_path
+            FROM tile_conditions c
+            JOIN tile_completion_paths p
+              ON p.tile_id = c.tile_id
+             AND p.completion_path = c.completion_path
+            WHERE c.condition_type = %s
+              AND lower(c.condition_trigger) = %s
+            ORDER BY
+                c.tile_id,
+                c.completion_path,
+                c.condition_id
             ''',
             (
                 condition_type,
@@ -310,16 +515,12 @@ def apply_wom_metric_progress(
 
         tile_results = []
 
-        for condition_id, tile_id, target in conditions:
-            target = int(target)
-
-            if target <= 0:
-                raise ValueError(
-                    f"Condition {condition_id} "
-                    "has an invalid target."
-                )
-
-            # Lock the tile so simultaneous progress updates
+        for (
+            condition_id,
+            tile_id,
+            completion_path
+        ) in conditions:
+            # Lock the tile so simultaneous WOM updates
             # cannot both claim the same remaining contribution.
             cursor.execute(
                 '''
@@ -350,82 +551,83 @@ def apply_wom_metric_progress(
             if cursor.fetchone() is not None:
                 continue
 
-            cursor.execute(
-                '''
-                SELECT COALESCE(
-                    SUM(partial_completion),
-                    0
+            before = _evaluate_completion_path(
+                cursor=cursor,
+                team_id=team_id,
+                tile_id=tile_id,
+                completion_path=completion_path
+            )
+
+            if new_gain > 0:
+                raw_progress = (
+                    _add_tile_condition_progress(
+                        cursor=cursor,
+                        team_id=team_id,
+                        condition_id=condition_id,
+                        amount=new_gain
+                    )
                 )
-                FROM partial_completions
-                WHERE team_id = %s
-                  AND tile_id = %s
-                ''',
-                (
-                    team_id,
-                    tile_id
-                )
-            )
-
-            banked_before = float(
-                cursor.fetchone()[0]
-            )
-
-            remaining = round(
-                max(
-                    0.0,
-                    1.0 - banked_before
-                ),
-                12
-            )
-
-            contribution = round(
-                min(
-                    remaining,
-                    new_gain / target
-                ),
-                12
-            )
-
-            if contribution > 0:
+            else:
                 cursor.execute(
                     '''
-                    INSERT INTO partial_completions (
-                        player_id,
-                        team_id,
-                        tile_id,
-                        partial_completion
-                    )
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (
-                        player_id,
-                        team_id,
-                        tile_id
-                    )
-                    DO UPDATE SET
-                        partial_completion =
-                            partial_completions.partial_completion
-                            + EXCLUDED.partial_completion
+                    SELECT COALESCE(progress, 0)
+                    FROM tile_condition_progress
+                    WHERE team_id = %s
+                      AND condition_id = %s
                     ''',
                     (
-                        player_id,
                         team_id,
-                        tile_id,
-                        contribution
+                        condition_id
                     )
                 )
 
-            banked_after = round(
-                banked_before + contribution,
+                progress_row = cursor.fetchone()
+
+                if progress_row is None:
+                    raw_progress = 0
+                else:
+                    raw_progress = int(
+                        progress_row[0]
+                    )
+
+            after = _evaluate_completion_path(
+                cursor=cursor,
+                team_id=team_id,
+                tile_id=tile_id,
+                completion_path=completion_path
+            )
+
+            progress_delta = round(
+                max(
+                    0.0,
+                    after["progress_fraction"]
+                    - before["progress_fraction"]
+                ),
                 12
+            )
+
+            contribution, banked_after = (
+                _bank_partial_contribution(
+                    cursor=cursor,
+                    player_id=player_id,
+                    team_id=team_id,
+                    tile_id=tile_id,
+                    requested_contribution=progress_delta
+                )
             )
 
             tile_results.append(
                 {
                     "condition_id": condition_id,
                     "tile_id": tile_id,
+                    "completion_path":
+                        completion_path,
+                    "raw_progress": raw_progress,
+                    "route_progress":
+                        after["progress_fraction"],
                     "credited": contribution,
                     "banked_total": banked_after,
-                    "ready": banked_after >= 0.999999
+                    "ready": after["ready"]
                 }
             )
 
@@ -1372,12 +1574,128 @@ def add_tile(tile_name, tile_type, tile_triggers, tile_trigger_weights, tile_uni
     return available_id
 
 
+def _normalise_completion_paths(
+    conditions,
+    completion_paths=None
+):
+    condition_path_numbers = {
+        int(condition["completion_path"])
+        for condition in conditions
+    }
+
+    if completion_paths is None:
+        return [
+            {
+                "completion_path": path_number,
+                "route_mode": "ALL",
+                "route_target": None,
+                "require_unique": False
+            }
+            for path_number
+            in sorted(condition_path_numbers)
+        ]
+
+    valid_modes = {
+        "ALL",
+        "SUM",
+        "N_OF"
+    }
+
+    normalised_paths = []
+
+    for path in completion_paths:
+        path_number = int(
+            path["completion_path"]
+        )
+
+        route_mode = str(
+            path.get("route_mode", "ALL")
+        ).strip().upper()
+
+        route_target = path.get(
+            "route_target"
+        )
+
+        require_unique = bool(
+            path.get("require_unique", False)
+        )
+
+        if path_number < 1:
+            raise ValueError(
+                "Completion paths must start at 1."
+            )
+
+        if route_mode not in valid_modes:
+            raise ValueError(
+                f"Invalid route mode: {route_mode}"
+            )
+
+        if route_mode == "ALL":
+            route_target = None
+            require_unique = False
+
+        else:
+            if route_target in {
+                None,
+                ""
+            }:
+                raise ValueError(
+                    f"{route_mode} routes require a target."
+                )
+
+            route_target = int(
+                route_target
+            )
+
+            if route_target < 1:
+                raise ValueError(
+                    "Route targets must be greater than 0."
+                )
+
+            if route_mode != "N_OF":
+                require_unique = False
+
+        normalised_paths.append(
+            {
+                "completion_path": path_number,
+                "route_mode": route_mode,
+                "route_target": route_target,
+                "require_unique": require_unique
+            }
+        )
+
+    supplied_path_numbers = {
+        path["completion_path"]
+        for path in normalised_paths
+    }
+
+    if supplied_path_numbers != condition_path_numbers:
+        raise ValueError(
+            "Completion route metadata must match "
+            "the tile's condition routes."
+        )
+
+    if (
+        len(supplied_path_numbers)
+        != len(normalised_paths)
+    ):
+        raise ValueError(
+            "Each completion route can only be defined once."
+        )
+
+    return sorted(
+        normalised_paths,
+        key=lambda path: path["completion_path"]
+    )
+
+
 def update_tile_with_conditions(
     tile_id,
     tile_name,
     tile_points,
     tile_rules,
-    conditions
+    conditions,
+    completion_paths=None
 ):
     if not conditions:
         raise ValueError(
@@ -1388,6 +1706,7 @@ def update_tile_with_conditions(
         "KILLCOUNT",
         "EXPERIENCE",
         "DROP",
+        "METRIC",
         "PET",
         "MANUAL"
     }
@@ -1450,6 +1769,11 @@ def update_tile_with_conditions(
                 "target": target
             }
         )
+
+    normalised_paths = _normalise_completion_paths(
+        normalised_conditions,
+        completion_paths
+    )
 
     condition_types = {
         condition["condition_type"]
@@ -1536,12 +1860,68 @@ def update_tile_with_conditions(
             for row in cursor.fetchall()
         ]
 
+        cursor.execute(
+            '''
+            SELECT
+                completion_path,
+                route_mode,
+                route_target,
+                require_unique
+            FROM tile_completion_paths
+            WHERE tile_id = %s
+            ORDER BY completion_path
+            ''',
+            (tile_id,)
+        )
+
+        existing_paths = [
+            {
+                "completion_path": int(row[0]),
+                "route_mode":
+                    str(row[1]).strip().upper(),
+                "route_target": (
+                    int(row[2])
+                    if row[2] is not None
+                    else None
+                ),
+                "require_unique": bool(row[3])
+            }
+            for row in cursor.fetchall()
+        ]
+
+        if completion_paths is None:
+            condition_path_numbers = {
+                condition["completion_path"]
+                for condition in normalised_conditions
+            }
+
+            existing_path_numbers = {
+                path["completion_path"]
+                for path in existing_paths
+            }
+
+            if (
+                condition_path_numbers
+                != existing_path_numbers
+            ):
+                raise ValueError(
+                    "Completion path definitions are required "
+                    "when adding or removing completion paths."
+                )
+
+            normalised_paths = existing_paths
+
+        paths_changed = (
+            existing_paths
+            != normalised_paths
+        )
+
         conditions_changed = (
             existing_conditions
             != normalised_conditions
         )
 
-        if conditions_changed:
+        if conditions_changed or paths_changed:
             cursor.execute(
                 '''
                 SELECT EXISTS (
@@ -1551,11 +1931,19 @@ def update_tile_with_conditions(
                 )
                 OR EXISTS (
                     SELECT 1
+                    FROM tile_condition_progress p
+                    JOIN tile_conditions c
+                      ON c.condition_id = p.condition_id
+                    WHERE c.tile_id = %s
+                )
+                OR EXISTS (
+                    SELECT 1
                     FROM completed_tiles
                     WHERE tile_id = %s
                 )
                 ''',
                 (
+                    tile_id,
                     tile_id,
                     tile_id
                 )
@@ -1598,10 +1986,18 @@ def update_tile_with_conditions(
             )
         )
 
-        if conditions_changed:
+        if conditions_changed or paths_changed:
             cursor.execute(
                 '''
                 DELETE FROM drop_whitelist
+                WHERE tile_id = %s
+                ''',
+                (tile_id,)
+            )
+
+            cursor.execute(
+                '''
+                DELETE FROM tile_completion_paths
                 WHERE tile_id = %s
                 ''',
                 (tile_id,)
@@ -1614,6 +2010,27 @@ def update_tile_with_conditions(
                 ''',
                 (tile_id,)
             )
+
+            for path in normalised_paths:
+                cursor.execute(
+                    '''
+                    INSERT INTO tile_completion_paths (
+                        tile_id,
+                        completion_path,
+                        route_mode,
+                        route_target,
+                        require_unique
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    ''',
+                    (
+                        tile_id,
+                        path["completion_path"],
+                        path["route_mode"],
+                        path["route_target"],
+                        path["require_unique"]
+                    )
+                )
 
             for condition in normalised_conditions:
                 cursor.execute(
@@ -1660,7 +2077,8 @@ def add_tile_with_conditions(
     tile_name,
     tile_points,
     tile_rules,
-    conditions
+    conditions,
+    completion_paths=None
 ):
     if not conditions:
         raise ValueError(
@@ -1670,6 +2088,7 @@ def add_tile_with_conditions(
     valid_types = {
         "KILLCOUNT",
         "EXPERIENCE",
+        "METRIC",
         "DROP",
         "PET",
         "MANUAL"
@@ -1729,6 +2148,11 @@ def add_tile_with_conditions(
             }
         )
 
+    normalised_paths = _normalise_completion_paths(
+        normalised_conditions,
+        completion_paths
+    )
+
     condition_types = {
         condition["condition_type"]
         for condition in normalised_conditions
@@ -1787,6 +2211,27 @@ def add_tile_with_conditions(
                 tile_rules
             )
         )
+
+        for path in normalised_paths:
+            cursor.execute(
+                '''
+                INSERT INTO tile_completion_paths (
+                    tile_id,
+                    completion_path,
+                    route_mode,
+                    route_target,
+                    require_unique
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                ''',
+                (
+                    available_id,
+                    path["completion_path"],
+                    path["route_mode"],
+                    path["route_target"],
+                    path["require_unique"]
+                )
+            )
 
         for condition in normalised_conditions:
             cursor.execute(
@@ -1874,6 +2319,474 @@ def add_tile_condition(
     return condition_id
 
 
+def get_tile_completion_paths(tile_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                tile_id,
+                completion_path,
+                route_mode,
+                route_target,
+                require_unique
+            FROM tile_completion_paths
+            WHERE tile_id = %s
+            ORDER BY completion_path
+            ''',
+            (tile_id,)
+        )
+
+        return cursor.fetchall()
+
+def get_tile_condition_progress(team_id, tile_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                c.condition_id,
+                c.completion_path,
+                c.condition_type,
+                c.condition_trigger,
+                c.target,
+                COALESCE(p.progress, 0)
+            FROM tile_conditions c
+            LEFT JOIN tile_condition_progress p
+              ON p.condition_id = c.condition_id
+             AND p.team_id = %s
+            WHERE c.tile_id = %s
+            ORDER BY
+                c.completion_path,
+                c.condition_id
+            ''',
+            (
+                team_id,
+                tile_id
+            )
+        )
+
+        return cursor.fetchall()
+
+
+def _add_tile_condition_progress(
+    cursor,
+    team_id,
+    condition_id,
+    amount=1
+):
+    amount = int(amount)
+
+    if amount < 1:
+        raise ValueError(
+            "Condition progress must be greater than 0."
+        )
+
+    cursor.execute(
+        '''
+        INSERT INTO tile_condition_progress (
+            team_id,
+            condition_id,
+            progress
+        )
+        VALUES (%s, %s, %s)
+        ON CONFLICT (
+            team_id,
+            condition_id
+        )
+        DO UPDATE SET
+            progress =
+                tile_condition_progress.progress
+                + EXCLUDED.progress
+        RETURNING progress
+        ''',
+        (
+            team_id,
+            condition_id,
+            amount
+        )
+    )
+
+    return int(
+        cursor.fetchone()[0]
+    )
+
+
+def add_tile_condition_progress(
+    team_id,
+    condition_id,
+    amount=1
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        new_progress = _add_tile_condition_progress(
+            cursor=cursor,
+            team_id=team_id,
+            condition_id=condition_id,
+            amount=amount
+        )
+
+        conn.commit()
+
+    return new_progress
+
+def _evaluate_completion_path(
+    cursor,
+    team_id,
+    tile_id,
+    completion_path
+):
+    cursor.execute(
+        '''
+        SELECT
+            route_mode,
+            route_target,
+            require_unique
+        FROM tile_completion_paths
+        WHERE tile_id = %s
+          AND completion_path = %s
+        ''',
+        (
+            tile_id,
+            completion_path
+        )
+    )
+
+    path = cursor.fetchone()
+
+    if path is None:
+        raise ValueError(
+            "Completion path does not exist."
+        )
+
+    route_mode = path[0]
+    route_target = path[1]
+    require_unique = bool(path[2])
+
+    cursor.execute(
+        '''
+        SELECT
+            c.condition_id,
+            c.target,
+            COALESCE(p.progress, 0)
+        FROM tile_conditions c
+        LEFT JOIN tile_condition_progress p
+          ON p.condition_id = c.condition_id
+         AND p.team_id = %s
+        WHERE c.tile_id = %s
+          AND c.completion_path = %s
+        ORDER BY c.condition_id
+        ''',
+        (
+            team_id,
+            tile_id,
+            completion_path
+        )
+    )
+
+    conditions = cursor.fetchall()
+
+    if not conditions:
+        raise ValueError(
+            "Completion path has no conditions."
+        )
+
+    if route_mode == "ALL":
+        completed_conditions = sum(
+            1
+            for _, target, progress in conditions
+            if int(progress) >= int(target)
+        )
+
+        progress_fraction = sum(
+            min(
+                int(progress) / int(target),
+                1.0
+            )
+            for _, target, progress in conditions
+        ) / len(conditions)
+
+        return {
+            "route_mode": "ALL",
+            "current": completed_conditions,
+            "target": len(conditions),
+            "progress_fraction": round(
+                progress_fraction,
+                12
+            ),
+            "ready":
+                completed_conditions == len(conditions)
+        }
+
+    if route_mode == "SUM":
+        current = sum(
+            int(progress)
+            for _, _, progress in conditions
+        )
+        target = int(route_target)
+
+        return {
+            "route_mode": "SUM",
+            "current": current,
+            "target": target,
+            "progress_fraction": round(
+                min(
+                    current / target,
+                    1.0
+                ),
+                12
+            ),
+            "ready": current >= target
+        }
+
+    if route_mode == "N_OF":
+        if require_unique:
+            current = sum(
+                1
+                for _, _, progress in conditions
+                if int(progress) > 0
+            )
+        else:
+            current = sum(
+                int(progress)
+                for _, _, progress in conditions
+            )
+
+        target = int(route_target)
+
+        return {
+            "route_mode": "N_OF",
+            "current": current,
+            "target": target,
+            "progress_fraction": round(
+                min(
+                    current / target,
+                    1.0
+                ),
+                12
+            ),
+            "require_unique": require_unique,
+            "ready": current >= target
+        }
+
+    raise ValueError(
+        f"Unsupported route mode: {route_mode}"
+    )
+
+
+def evaluate_completion_path(
+    team_id,
+    tile_id,
+    completion_path
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        return _evaluate_completion_path(
+            cursor=cursor,
+            team_id=team_id,
+            tile_id=tile_id,
+            completion_path=completion_path
+        )
+
+def apply_event_condition_progress(
+    player_id,
+    condition_type,
+    trigger,
+    amount=1
+):
+    condition_type = str(
+        condition_type
+    ).strip().upper()
+
+    trigger = str(
+        trigger
+    ).strip()
+
+    amount = int(amount)
+
+    if condition_type not in {
+        "DROP",
+        "PET"
+    }:
+        raise ValueError(
+            "Event progress can only be applied "
+            "to DROP or PET conditions."
+        )
+
+    if not trigger:
+        raise ValueError(
+            "Event progress requires a trigger."
+        )
+
+    if amount < 1:
+        raise ValueError(
+            "Event progress must be greater than 0."
+        )
+
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT team_id
+            FROM players
+            WHERE player_id = %s
+            FOR UPDATE
+            ''',
+            (player_id,)
+        )
+
+        player_row = cursor.fetchone()
+
+        if player_row is None:
+            raise ValueError(
+                f"Player {player_id} does not exist."
+            )
+
+        team_id = player_row[0]
+
+        if team_id is None:
+            raise ValueError(
+                f"Player {player_id} is not on a team."
+            )
+
+        cursor.execute(
+            '''
+            SELECT
+                condition_id,
+                tile_id,
+                completion_path
+            FROM tile_conditions
+            WHERE condition_type = %s
+              AND lower(condition_trigger) = lower(%s)
+            ORDER BY
+                tile_id,
+                completion_path,
+                condition_id
+            ''',
+            (
+                condition_type,
+                trigger
+            )
+        )
+
+        conditions = cursor.fetchall()
+
+        results = []
+
+        for (
+            condition_id,
+            tile_id,
+            completion_path
+        ) in conditions:
+            # Serialise all progress against this tile so two
+            # simultaneous events cannot both claim the same
+            # remaining contribution.
+            cursor.execute(
+                '''
+                SELECT tile_id
+                FROM tiles
+                WHERE tile_id = %s
+                FOR UPDATE
+                ''',
+                (tile_id,)
+            )
+
+            if cursor.fetchone() is None:
+                continue
+
+            cursor.execute(
+                '''
+                SELECT 1
+                FROM completed_tiles
+                WHERE team_id = %s
+                  AND tile_id = %s
+                ''',
+                (
+                    team_id,
+                    tile_id
+                )
+            )
+
+            if cursor.fetchone() is not None:
+                continue
+
+            before = _evaluate_completion_path(
+                cursor=cursor,
+                team_id=team_id,
+                tile_id=tile_id,
+                completion_path=completion_path
+            )
+
+            raw_progress = _add_tile_condition_progress(
+                cursor=cursor,
+                team_id=team_id,
+                condition_id=condition_id,
+                amount=amount
+            )
+
+            after = _evaluate_completion_path(
+                cursor=cursor,
+                team_id=team_id,
+                tile_id=tile_id,
+                completion_path=completion_path
+            )
+
+            progress_delta = round(
+                max(
+                    0.0,
+                    after["progress_fraction"]
+                    - before["progress_fraction"]
+                ),
+                12
+            )
+
+            contribution, banked_after = (
+                _bank_partial_contribution(
+                    cursor=cursor,
+                    player_id=player_id,
+                    team_id=team_id,
+                    tile_id=tile_id,
+                    requested_contribution=progress_delta
+                )
+            )
+
+            completed = False
+
+            # Tile readiness is determined by an actual completion
+            # path, never merely by total banked contribution.
+            if after["ready"]:
+                completed = (
+                    _complete_tile_with_contributions(
+                        cursor=cursor,
+                        team_id=team_id,
+                        tile_id=tile_id
+                    )
+                )
+
+            results.append(
+                {
+                    "condition_id": condition_id,
+                    "tile_id": tile_id,
+                    "completion_path": completion_path,
+                    "raw_progress": raw_progress,
+                    "route_progress":
+                        after["progress_fraction"],
+                    "credited": contribution,
+                    "banked_total": banked_after,
+                    "ready": after["ready"],
+                    "completed": completed
+                }
+            )
+
+        conn.commit()
+
+    return results
+
 def get_tile_conditions(tile_id):
     with connect() as conn:
         cursor = conn.cursor()
@@ -1912,7 +2825,8 @@ def get_wom_tile_conditions():
             FROM tile_conditions
             WHERE condition_type IN (
                 'KILLCOUNT',
-                'EXPERIENCE'
+                'EXPERIENCE',
+                'METRIC'
             )
             ORDER BY
                 tile_id,
@@ -2070,6 +2984,191 @@ def get_partial_completions_by_player_id(player_id):
         return cursor.fetchall()
 
 
+def _complete_tile_with_contributions(
+    cursor,
+    team_id,
+    tile_id,
+    finisher_player_id=None
+):
+    cursor.execute(
+        '''
+        SELECT tile_points
+        FROM tiles
+        WHERE tile_id = %s
+        ''',
+        (tile_id,)
+    )
+    tile_row = cursor.fetchone()
+
+    if tile_row is None:
+        raise ValueError(
+            f"Tile {tile_id} does not exist."
+        )
+
+    tile_points = float(tile_row[0])
+
+    # Claim the completion first. The unique index means that
+    # only one process can ever successfully complete this tile
+    # for this team.
+    cursor.execute(
+        '''
+        INSERT INTO completed_tiles (
+            tile_id,
+            team_id
+        )
+        VALUES (%s, %s)
+        ON CONFLICT (team_id, tile_id)
+        DO NOTHING
+        RETURNING completed_tile_pk
+        ''',
+        (
+            tile_id,
+            team_id
+        )
+    )
+
+    if cursor.fetchone() is None:
+        return False
+
+    cursor.execute(
+        '''
+        SELECT
+            player_id,
+            partial_completion
+        FROM partial_completions
+        WHERE team_id = %s
+          AND tile_id = %s
+        ORDER BY partial_completion_pk
+        FOR UPDATE
+        ''',
+        (
+            team_id,
+            tile_id
+        )
+    )
+
+    contributions = {
+        player_id: float(partial_completion)
+        for player_id, partial_completion
+        in cursor.fetchall()
+    }
+
+    banked_total = sum(contributions.values())
+
+    if banked_total < 0:
+        raise ValueError(
+            "Tile contribution cannot be negative."
+        )
+
+    # Allow only tiny floating-point rounding differences.
+    if banked_total > 1.000001:
+        raise ValueError(
+            "Banked tile contribution exceeds 100%."
+        )
+
+    if banked_total > 1:
+        scale = 1 / banked_total
+        contributions = {
+            player_id: contribution * scale
+            for player_id, contribution
+            in contributions.items()
+        }
+        banked_total = 1.0
+
+    if finisher_player_id is not None:
+        remaining = round(
+            max(
+                0.0,
+                1.0 - banked_total
+            ),
+            12
+        )
+
+        contributions[finisher_player_id] = round(
+            contributions.get(
+                finisher_player_id,
+                0.0
+            )
+            + remaining,
+            12
+        )
+
+    elif banked_total < 0.999999:
+        raise ValueError(
+            "Tile has not reached 100% contribution."
+        )
+
+    elif banked_total != 1.0:
+        scale = 1 / banked_total
+        contributions = {
+            player_id: contribution * scale
+            for player_id, contribution
+            in contributions.items()
+        }
+
+    for player_id, contribution in contributions.items():
+        if contribution <= 0:
+            continue
+
+        cursor.execute(
+            '''
+            UPDATE players
+            SET
+                tiles_completed =
+                    COALESCE(tiles_completed, 0) + %s,
+                player_points =
+                    COALESCE(player_points, 0) + %s
+            WHERE player_id = %s
+              AND team_id = %s
+            RETURNING player_id
+            ''',
+            (
+                contribution,
+                contribution * tile_points,
+                player_id,
+                team_id
+            )
+        )
+
+        if cursor.fetchone() is None:
+            raise ValueError(
+                f"Player {player_id} is not on "
+                f"team {team_id}."
+            )
+
+    cursor.execute(
+        '''
+        UPDATE teams
+        SET team_points = team_points + %s
+        WHERE team_id = %s
+        RETURNING team_id
+        ''',
+        (
+            tile_points,
+            team_id
+        )
+    )
+
+    if cursor.fetchone() is None:
+        raise ValueError(
+            f"Team {team_id} does not exist."
+        )
+
+    cursor.execute(
+        '''
+        DELETE FROM partial_completions
+        WHERE team_id = %s
+          AND tile_id = %s
+        ''',
+        (
+            team_id,
+            tile_id
+        )
+    )
+
+    return True
+
+
 def complete_tile_with_contributions(
     team_id,
     tile_id,
@@ -2078,185 +3177,16 @@ def complete_tile_with_contributions(
     with connect() as conn:
         cursor = conn.cursor()
 
-        cursor.execute(
-            '''
-            SELECT tile_points
-            FROM tiles
-            WHERE tile_id = %s
-            ''',
-            (tile_id,)
-        )
-        tile_row = cursor.fetchone()
-
-        if tile_row is None:
-            raise ValueError(
-                f"Tile {tile_id} does not exist."
-            )
-
-        tile_points = float(tile_row[0])
-
-        # Claim the completion first. The unique index means that
-        # only one process can ever successfully complete this tile
-        # for this team.
-        cursor.execute(
-            '''
-            INSERT INTO completed_tiles (
-                tile_id,
-                team_id
-            )
-            VALUES (%s, %s)
-            ON CONFLICT (team_id, tile_id)
-            DO NOTHING
-            RETURNING completed_tile_pk
-            ''',
-            (
-                tile_id,
-                team_id
-            )
-        )
-
-        if cursor.fetchone() is None:
-            return False
-
-        cursor.execute(
-            '''
-            SELECT
-                player_id,
-                partial_completion
-            FROM partial_completions
-            WHERE team_id = %s
-              AND tile_id = %s
-            ORDER BY partial_completion_pk
-            FOR UPDATE
-            ''',
-            (
-                team_id,
-                tile_id
-            )
-        )
-
-        contributions = {
-            player_id: float(partial_completion)
-            for player_id, partial_completion
-            in cursor.fetchall()
-        }
-
-        banked_total = sum(contributions.values())
-
-        if banked_total < 0:
-            raise ValueError(
-                "Tile contribution cannot be negative."
-            )
-
-        # Allow only tiny floating-point rounding differences.
-        if banked_total > 1.000001:
-            raise ValueError(
-                "Banked tile contribution exceeds 100%."
-            )
-
-        if banked_total > 1:
-            scale = 1 / banked_total
-            contributions = {
-                player_id: contribution * scale
-                for player_id, contribution
-                in contributions.items()
-            }
-            banked_total = 1.0
-
-        if finisher_player_id is not None:
-            remaining = round(
-                max(
-                    0.0,
-                    1.0 - banked_total
-                ),
-                12
-            )
-
-            contributions[finisher_player_id] = round(
-                contributions.get(
-                    finisher_player_id,
-                    0.0
-                )
-                + remaining,
-                12
-            )
-
-        elif banked_total < 0.999999:
-            raise ValueError(
-                "Tile has not reached 100% contribution."
-            )
-
-        elif banked_total != 1.0:
-            scale = 1 / banked_total
-            contributions = {
-                player_id: contribution * scale
-                for player_id, contribution
-                in contributions.items()
-            }
-
-        for player_id, contribution in contributions.items():
-            if contribution <= 0:
-                continue
-
-            cursor.execute(
-                '''
-                UPDATE players
-                SET
-                    tiles_completed =
-                        tiles_completed + %s,
-                    player_points =
-                        player_points + %s
-                WHERE player_id = %s
-                  AND team_id = %s
-                RETURNING player_id
-                ''',
-                (
-                    contribution,
-                    contribution * tile_points,
-                    player_id,
-                    team_id
-                )
-            )
-
-            if cursor.fetchone() is None:
-                raise ValueError(
-                    f"Player {player_id} is not on "
-                    f"team {team_id}."
-                )
-
-        cursor.execute(
-            '''
-            UPDATE teams
-            SET team_points = team_points + %s
-            WHERE team_id = %s
-            RETURNING team_id
-            ''',
-            (
-                tile_points,
-                team_id
-            )
-        )
-
-        if cursor.fetchone() is None:
-            raise ValueError(
-                f"Team {team_id} does not exist."
-            )
-
-        cursor.execute(
-            '''
-            DELETE FROM partial_completions
-            WHERE team_id = %s
-              AND tile_id = %s
-            ''',
-            (
-                team_id,
-                tile_id
-            )
+        completed = _complete_tile_with_contributions(
+            cursor=cursor,
+            team_id=team_id,
+            tile_id=tile_id,
+            finisher_player_id=finisher_player_id
         )
 
         conn.commit()
 
-    return True
+    return completed
 
 
 def remove_partial_completion(partial_completion_pk):
@@ -2661,11 +3591,71 @@ def reset_tables():
                     condition_type IN (
                         'KILLCOUNT',
                         'EXPERIENCE',
+                        'METRIC',
                         'DROP',
                         'PET',
                         'MANUAL'
                     )
                 )
+            )
+        ''')
+
+    cursor.execute('''
+            CREATE TABLE tile_completion_paths (
+                tile_id INTEGER NOT NULL,
+                completion_path INTEGER NOT NULL,
+                route_mode TEXT NOT NULL DEFAULT 'ALL',
+                route_target BIGINT,
+                require_unique BOOLEAN NOT NULL DEFAULT FALSE,
+                PRIMARY KEY (
+                    tile_id,
+                    completion_path
+                ),
+                FOREIGN KEY (tile_id)
+                    REFERENCES tiles(tile_id)
+                    ON DELETE CASCADE,
+                CHECK (completion_path >= 1),
+                CHECK (
+                    route_mode IN (
+                        'ALL',
+                        'SUM',
+                        'N_OF'
+                    )
+                ),
+                CHECK (
+                    (
+                        route_mode = 'ALL'
+                        AND route_target IS NULL
+                    )
+                    OR
+                    (
+                        route_mode IN ('SUM', 'N_OF')
+                        AND route_target > 0
+                    )
+                ),
+                CHECK (
+                    route_mode = 'N_OF'
+                    OR require_unique = FALSE
+                )
+            )
+        ''')
+
+    cursor.execute('''
+            CREATE TABLE tile_condition_progress (
+                team_id INTEGER NOT NULL,
+                condition_id INTEGER NOT NULL,
+                progress BIGINT NOT NULL DEFAULT 0,
+                PRIMARY KEY (
+                    team_id,
+                    condition_id
+                ),
+                FOREIGN KEY (team_id)
+                    REFERENCES teams(team_id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (condition_id)
+                    REFERENCES tile_conditions(condition_id)
+                    ON DELETE CASCADE,
+                CHECK (progress >= 0)
             )
         ''')
 
@@ -2737,7 +3727,7 @@ def reset_tables():
                 team_id integer,
                 tile_id integer,
                 player_id integer,
-                partial_completion real,
+                partial_completion NUMERIC(18, 12),
                 partial_completion_pk SERIAL PRIMARY KEY,
                 FOREIGN KEY(team_id) REFERENCES teams(team_id) ON DELETE CASCADE,
                 FOREIGN KEY(tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE,

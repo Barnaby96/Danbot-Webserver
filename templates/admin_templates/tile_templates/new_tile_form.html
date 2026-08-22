@@ -102,8 +102,8 @@
     </h2>
 
     <p style="color: #aaa; margin-top: 0;">
-        Conditions inside the same route are
-        <strong>AND</strong> requirements.
+        Each route can use <strong>ALL</strong>,
+        <strong>SUM</strong>, or <strong>N OF</strong> logic.
         Separate routes are <strong>OR</strong> alternatives.
     </p>
 
@@ -191,6 +191,7 @@
                 >
                     <option value="KILLCOUNT">Killcount</option>
                     <option value="EXPERIENCE">Experience</option>
+                    <option value="METRIC">Metric</option>
                     <option value="DROP">Drop</option>
                     <option value="PET">Pet</option>
                     <option value="MANUAL">Manual</option>
@@ -318,6 +319,108 @@
                 </button>
             </div>
 
+            <input
+                type="hidden"
+                name="route_completion_path"
+                value="${routeNumber}"
+            >
+
+            <div
+                class="route-settings"
+                style="
+                    display: grid;
+                    grid-template-columns: 1fr 1fr 1fr;
+                    gap: 10px;
+                    margin-bottom: 15px;
+                "
+            >
+                <div>
+                    <label style="
+                        display: block;
+                        margin-bottom: 5px;
+                        color: #ccc;
+                    ">
+                        Route Mode
+                    </label>
+
+                    <select
+                        name="route_mode"
+                        onchange="routeModeChanged(this)"
+                        style="
+                            width: 100%;
+                            padding: 10px;
+                            border: 1px solid #444;
+                            border-radius: 5px;
+                            background-color: #333;
+                            color: #ccc;
+                            box-sizing: border-box;
+                        "
+                    >
+                        <option value="ALL">
+                            ALL - complete every condition
+                        </option>
+                        <option value="SUM">
+                            SUM - shared total across conditions
+                        </option>
+                        <option value="N_OF">
+                            N OF - complete a number of results
+                        </option>
+                    </select>
+                </div>
+
+                <div>
+                    <label style="
+                        display: block;
+                        margin-bottom: 5px;
+                        color: #ccc;
+                    ">
+                        Route Target
+                    </label>
+
+                    <input
+                        type="number"
+                        name="route_target"
+                        min="1"
+                        placeholder="Not used for ALL"
+                        readonly
+                        style="
+                            width: 100%;
+                            padding: 10px;
+                            border: 1px solid #444;
+                            border-radius: 5px;
+                            background-color: #333;
+                            color: #ccc;
+                            box-sizing: border-box;
+                        "
+                    >
+                </div>
+
+                <div>
+                    <label style="
+                        display: block;
+                        margin-bottom: 5px;
+                        color: #ccc;
+                    ">
+                        Unique Results
+                    </label>
+
+                    <label style="
+                        display: flex;
+                        align-items: center;
+                        min-height: 42px;
+                        gap: 8px;
+                        color: #ccc;
+                    ">
+                        <input
+                            type="checkbox"
+                            name="route_require_unique_${routeNumber}"
+                            disabled
+                        >
+                        Require different conditions
+                    </label>
+                </div>
+            </div>
+
             <div class="conditions"></div>
 
             <button
@@ -385,6 +488,38 @@
         }
 
         button.closest('.completion-route').remove();
+    }
+
+    function routeModeChanged(select) {
+        const route = select.closest('.completion-route');
+
+        const target = route.querySelector(
+            '[name="route_target"]'
+        );
+
+        const unique = route.querySelector(
+            'input[type="checkbox"][name^="route_require_unique_"]'
+        );
+
+        if (select.value === 'ALL') {
+            target.value = '';
+            target.readOnly = true;
+            target.required = false;
+
+            unique.checked = false;
+            unique.disabled = true;
+        } else if (select.value === 'SUM') {
+            target.readOnly = false;
+            target.required = true;
+
+            unique.checked = false;
+            unique.disabled = true;
+        } else if (select.value === 'N_OF') {
+            target.readOnly = false;
+            target.required = true;
+
+            unique.disabled = false;
+        }
     }
 
     function conditionTypeChanged(select) {
