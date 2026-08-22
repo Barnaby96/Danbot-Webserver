@@ -7,6 +7,7 @@ from cogs.AdminCog import AdminCog
 from cogs.SubmitRequestCog import SubmitRequestCog
 from cogs.UserCog import UserCog
 from discord.ext import commands
+from cogs.WOMCog import WOMCog
 
 approved_guilds = {
     int(guild_id.strip())
@@ -30,5 +31,6 @@ def run():
     bot.add_cog(UserCog(bot))
     bot.add_cog(AdminCog(bot))
     bot.add_cog(SubmitRequestCog(bot))
+    bot.add_cog(WOMCog(bot))
     bot.run(token)
 
