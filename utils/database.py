@@ -1369,6 +1369,7 @@ def add_tile(tile_name, tile_type, tile_triggers, tile_trigger_weights, tile_uni
         for x in tile_triggers.split(','):
             for trigger in x.split('/'):
                 add_drop_whitelist(trigger.strip(), available_id)
+    return available_id
 
 
 def add_tile_condition(
