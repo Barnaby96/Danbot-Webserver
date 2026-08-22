@@ -1372,6 +1372,181 @@ def add_tile(tile_name, tile_type, tile_triggers, tile_trigger_weights, tile_uni
     return available_id
 
 
+def add_tile_with_conditions(
+    tile_name,
+    tile_points,
+    tile_rules,
+    conditions
+):
+    if not conditions:
+        raise ValueError(
+            "A tile must have at least one completion condition."
+        )
+
+    valid_types = {
+        "KILLCOUNT",
+        "EXPERIENCE",
+        "DROP",
+        "PET",
+        "MANUAL"
+    }
+
+    normalised_conditions = []
+
+    for condition in conditions:
+        completion_path = int(
+            condition["completion_path"]
+        )
+        condition_type = str(
+            condition["condition_type"]
+        ).strip().upper()
+        condition_trigger = condition.get(
+            "condition_trigger"
+        )
+        target = int(condition.get("target", 1))
+
+        if completion_path < 1:
+            raise ValueError(
+                "Completion paths must start at 1."
+            )
+
+        if condition_type not in valid_types:
+            raise ValueError(
+                f"Invalid condition type: {condition_type}"
+            )
+
+        if target < 1:
+            raise ValueError(
+                "Condition targets must be greater than 0."
+            )
+
+        if condition_trigger is not None:
+            condition_trigger = str(
+                condition_trigger
+            ).strip()
+
+            if condition_trigger == "":
+                condition_trigger = None
+
+        if (
+            condition_type != "MANUAL"
+            and condition_trigger is None
+        ):
+            raise ValueError(
+                f"{condition_type} conditions require a trigger."
+            )
+
+        normalised_conditions.append(
+            {
+                "completion_path": completion_path,
+                "condition_type": condition_type,
+                "condition_trigger": condition_trigger,
+                "target": target
+            }
+        )
+
+    condition_types = {
+        condition["condition_type"]
+        for condition in normalised_conditions
+    }
+
+    if len(condition_types) == 1:
+        tile_type = next(iter(condition_types))
+    else:
+        tile_type = "MIXED"
+
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        available_id = 1
+
+        while True:
+            cursor.execute(
+                "SELECT 1 FROM tiles WHERE tile_id = %s",
+                (available_id,)
+            )
+
+            if cursor.fetchone() is None:
+                break
+
+            available_id += 1
+
+        cursor.execute(
+            '''
+            INSERT INTO tiles (
+                tile_id,
+                tile_name,
+                tile_type,
+                tile_triggers,
+                tile_trigger_weights,
+                tile_unique_drops,
+                tile_triggers_required,
+                tile_repetition,
+                tile_points,
+                tile_rules
+            )
+            VALUES (
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s
+            )
+            ''',
+            (
+                available_id,
+                tile_name,
+                tile_type,
+                "",
+                None,
+                False,
+                0,
+                1,
+                tile_points,
+                tile_rules
+            )
+        )
+
+        for condition in normalised_conditions:
+            cursor.execute(
+                '''
+                INSERT INTO tile_conditions (
+                    tile_id,
+                    completion_path,
+                    condition_type,
+                    condition_trigger,
+                    target
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                ''',
+                (
+                    available_id,
+                    condition["completion_path"],
+                    condition["condition_type"],
+                    condition["condition_trigger"],
+                    condition["target"]
+                )
+            )
+
+            if condition["condition_type"] == "DROP":
+                cursor.execute(
+                    '''
+                    INSERT INTO drop_whitelist (
+                        drop_name,
+                        tile_id
+                    )
+                    VALUES (%s, %s)
+                    ON CONFLICT (drop_name)
+                    DO NOTHING
+                    ''',
+                    (
+                        condition["condition_trigger"],
+                        available_id
+                    )
+                )
+
+        conn.commit()
+
+    return available_id
+
+
 def add_tile_condition(
     tile_id,
     completion_path,
