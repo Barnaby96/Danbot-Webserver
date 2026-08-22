@@ -144,32 +144,77 @@
         <th>{{i+1}}</th>
         {% endfor %}
     </tr>
-    {% for x in range(0,boardsize) %}
+        {% for x in range(0, boardsize) %}
     {% set outerloopindex = loop.index0 %}
     <tr>
         {% for y in range(0, boardsize) %}
+        {% set tile_index = outerloopindex * boardsize + loop.index0 %}
         <td>
-            {% if tilenames[outerloopindex * boardsize + loop.index0] in completed_tiles %}
-                <button style="background-color: #4CAF50;"
-                        data-tile="{{tilenames[outerloopindex * boardsize + loop.index0]}}"
-                        data-completions="{{panelData[tilenames[outerloopindex * boardsize + loop.index0]].completions}}"
-                        data-repetitions="{{panelData[tilenames[outerloopindex * boardsize + loop.index0]].repetition}}"
-                        data-rules="{{panelData[tilenames[outerloopindex * boardsize + loop.index0]].rules}}"
-                        onclick="openPanel(this.dataset.tile, this.dataset.completions, this.dataset.repetitions, this.dataset.rules)">{{tilenames[outerloopindex * boardsize + loop.index0]}}</button>
-            {% elif tilenames[outerloopindex * boardsize + loop.index0] in partial_tiles %}
-                <button style="background-color: yellow;color: black"
-                        data-tile="{{tilenames[outerloopindex * boardsize + loop.index0]}}"
-                        data-completions="{{panelData[tilenames[outerloopindex * boardsize + loop.index0]].completions}}"
-                        data-repetitions="{{panelData[tilenames[outerloopindex * boardsize + loop.index0]].repetition}}"
-                        data-rules="{{panelData[tilenames[outerloopindex * boardsize + loop.index0]].rules}}"
-                        onclick="openPanel(this.dataset.tile, this.dataset.completions, this.dataset.repetitions, this.dataset.rules)">{{tilenames[outerloopindex * boardsize + loop.index0]}}</button>
+            {% if tile_index < tilenames|length %}
+                {% set tile_name = tilenames[tile_index] %}
+
+                {% if tile_name in completed_tiles %}
+                    <button
+                        style="background-color: #4CAF50;"
+                        data-tile="{{ tile_name }}"
+                        data-completions="{{ panelData[tile_name].completions }}"
+                        data-repetitions="{{ panelData[tile_name].repetition }}"
+                        data-rules="{{ panelData[tile_name].rules }}"
+                        onclick="openPanel(
+                            this.dataset.tile,
+                            this.dataset.completions,
+                            this.dataset.repetitions,
+                            this.dataset.rules
+                        )"
+                    >
+                        {{ tile_name }}
+                    </button>
+
+                {% elif tile_name in partial_tiles %}
+                    <button
+                        style="background-color: yellow; color: black;"
+                        data-tile="{{ tile_name }}"
+                        data-completions="{{ panelData[tile_name].completions }}"
+                        data-repetitions="{{ panelData[tile_name].repetition }}"
+                        data-rules="{{ panelData[tile_name].rules }}"
+                        onclick="openPanel(
+                            this.dataset.tile,
+                            this.dataset.completions,
+                            this.dataset.repetitions,
+                            this.dataset.rules
+                        )"
+                    >
+                        {{ tile_name }}
+                    </button>
+
+                {% else %}
+                    <button
+                        style="background-color: slategrey;"
+                        data-tile="{{ tile_name }}"
+                        data-completions="{{ panelData[tile_name].completions }}"
+                        data-repetitions="{{ panelData[tile_name].repetition }}"
+                        data-rules="{{ panelData[tile_name].rules }}"
+                        onclick="openPanel(
+                            this.dataset.tile,
+                            this.dataset.completions,
+                            this.dataset.repetitions,
+                            this.dataset.rules
+                        )"
+                    >
+                        {{ tile_name }}
+                    </button>
+                {% endif %}
+
             {% else %}
-                <button style="background-color: slategrey;"
-                        data-tile="{{tilenames[outerloopindex * boardsize + loop.index0]}}"
-                        data-completions="{{panelData[tilenames[outerloopindex * boardsize + loop.index0]].completions}}"
-                        data-repetitions="{{panelData[tilenames[outerloopindex * boardsize + loop.index0]].repetition}}"
-                        data-rules="{{panelData[tilenames[outerloopindex * boardsize + loop.index0]].rules}}"
-                        onclick="openPanel(this.dataset.tile, this.dataset.completions, this.dataset.repetitions, this.dataset.rules)">{{tilenames[outerloopindex * boardsize + loop.index0]}}</button>
+                <button
+                    type="button"
+                    disabled
+                    aria-label="Empty bingo tile"
+                    style="
+                        background-color: #2f2f2f;
+                        cursor: default;
+                    "
+                ></button>
             {% endif %}
         </td>
         {% endfor %}

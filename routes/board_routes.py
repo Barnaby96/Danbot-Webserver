@@ -3,7 +3,6 @@ from collections import defaultdict
 import random
 
 from flask import render_template, Blueprint, request, jsonify, make_response, redirect, url_for
-import math
 from utils import autocomplete, database, db_entities, bingo
 
 board_routes = Blueprint("board_routes", __name__)
@@ -210,17 +209,5 @@ def board(team_name):
 
 
 def get_board_size():
-    # get tiles for board population
-    tiles = []
-    for tile in database.get_tiles():
-        tiles.append(db_entities.Tile(tile))
-
-
-    board_size = 0
-    try:
-        board_size = math.ceil(float(math.sqrt(len(tiles))))
-    except ValueError:
-        # do nothing
-        pass
-
-    return board_size
+    # Bingo boards are always 5 x 5.
+    return 5

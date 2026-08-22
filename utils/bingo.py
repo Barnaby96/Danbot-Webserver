@@ -289,6 +289,79 @@ def get_progress(team_id, tile_id):
     # Get the tile completions
     tile_progress.completions = len(database.get_completed_tiles_by_team_id_and_tile_id(tile_progress.team.team_id, tile_progress.tile.tile_id))
 
+    conditions = database.get_tile_conditions(
+        tile_progress.tile.tile_id
+    )
+
+    if conditions:
+        if tile_progress.completions > 0:
+            tile_progress.status_text = (
+                "This tile is complete."
+            )
+            tile_progress.progress_value = 1
+            return tile_progress
+
+        partials = (
+            database
+            .get_partial_completions_by_team_id_and_tile_id(
+                tile_progress.team.team_id,
+                tile_progress.tile.tile_id
+            )
+        )
+
+        banked_total = sum(
+            float(partial[3])
+            for partial in partials
+        )
+
+        banked_total = min(
+            max(banked_total, 0.0),
+            1.0
+        )
+
+        tile_progress.progress_value = banked_total
+
+        wom_conditions = [
+            condition
+            for condition in conditions
+            if condition[3] in {
+                "KILLCOUNT",
+                "EXPERIENCE"
+            }
+        ]
+
+        if len(wom_conditions) == 1:
+            condition = wom_conditions[0]
+            condition_type = condition[3]
+            target = int(condition[5])
+
+            current_amount = round(
+                banked_total * target
+            )
+
+            unit = (
+                "XP"
+                if condition_type == "EXPERIENCE"
+                else "KC"
+            )
+
+            percentage = banked_total * 100
+
+            tile_progress.status_text = (
+                f"Team progress: "
+                f"{current_amount:,} / {target:,} {unit} "
+                f"({percentage:.2f}%)"
+            )
+
+        else:
+            percentage = banked_total * 100
+
+            tile_progress.status_text = (
+                f"Team progress: {percentage:.2f}%"
+            )
+
+        return tile_progress
+
     # # If the tile has been completed more or equal to max allowed, return tile progress stating as such
     # if tile_progress.completions >= tile_progress.tile.tile_repetition:
     #     tile_progress.status_text = f"This tile is fully complete. You have {tile_progress.completions}/{tile_progress.tile.tile_repetition} completed."
