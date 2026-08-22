@@ -1,16 +1,18 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, Blueprint
 
 from routes.admin.admin_routes import admin_required
-from utils.database import update_tile, remove_tile, get_tile_by_id, add_tile, get_tiles
+from utils.database import (
+    remove_tile,
+    get_tile_by_id,
+    get_tile_conditions,
+    add_tile_with_conditions,
+    update_tile_with_conditions,
+    get_tiles
+)
 
 tile_routes = Blueprint("tile_management", __name__)
-ALLOWED_TILE_TYPES = {
-    "DROP",
-    "PET",
-    "KILLCOUNT",
-    "EXPERIENCE",
-    "MANUAL",
-}
+
+
 @tile_routes.route('/tiles', methods=['GET'])
 @admin_required
 def tile_list():
@@ -21,55 +23,216 @@ def tile_list():
 @admin_required
 def create_tile():
     if request.method == 'POST':
-        tile_name = request.form.get('tile_name')
-        tile_type = request.form.get('tile_type')
-        if tile_type not in ALLOWED_TILE_TYPES:
-            flash('Invalid tile type.', 'danger')
-            return redirect(url_for('tile_management.create_tile'))
-        tile_triggers = request.form.get('tile_triggers')
-        tile_trigger_weights = request.form.get('tile_trigger_weights')
-        tile_unique_drops = request.form.get('tile_unique_drops')
-        tile_triggers_required = request.form.get('tile_triggers_required')
-        tile_repetition = request.form.get('tile_repetition')
+        tile_name = request.form.get(
+            'tile_name',
+            ''
+        ).strip()
         tile_points = request.form.get('tile_points')
-        tile_rules = request.form.get('tile_rules')
+        tile_rules = request.form.get(
+            'tile_rules',
+            ''
+        ).strip()
 
-        add_tile(tile_name, tile_type, tile_triggers, tile_trigger_weights, tile_unique_drops, tile_triggers_required,
-                 tile_repetition, tile_points, tile_rules)
+        completion_paths = request.form.getlist(
+            'completion_path'
+        )
+        condition_types = request.form.getlist(
+            'condition_type'
+        )
+        condition_triggers = request.form.getlist(
+            'condition_trigger'
+        )
+        condition_targets = request.form.getlist(
+            'condition_target'
+        )
 
-        flash('Tile created successfully!', 'success')
-        return redirect(url_for('tile_management.tile_list'))
+        if not tile_name:
+            flash('Tile name is required.', 'danger')
+            return redirect(
+                url_for('tile_management.create_tile')
+            )
 
-    return render_template('admin_templates/tile_templates/new_tile_form.html')
+        condition_count = len(condition_types)
 
-@tile_routes.route('/tiles/edit/<int:tile_id>', methods=['GET', 'POST'])
+        if not (
+            condition_count
+            == len(completion_paths)
+            == len(condition_triggers)
+            == len(condition_targets)
+        ):
+            flash(
+                'The tile conditions were not submitted correctly.',
+                'danger'
+            )
+            return redirect(
+                url_for('tile_management.create_tile')
+            )
+
+        conditions = []
+
+        try:
+            for index in range(condition_count):
+                conditions.append(
+                    {
+                        "completion_path":
+                            int(completion_paths[index]),
+                        "condition_type":
+                            condition_types[index],
+                        "condition_trigger":
+                            condition_triggers[index],
+                        "target":
+                            int(condition_targets[index])
+                    }
+                )
+
+            add_tile_with_conditions(
+                tile_name,
+                float(tile_points),
+                tile_rules,
+                conditions
+            )
+
+        except (TypeError, ValueError, KeyError) as error:
+            flash(str(error), 'danger')
+            return redirect(
+                url_for('tile_management.create_tile')
+            )
+
+        flash(
+            'Tile created successfully!',
+            'success'
+        )
+        return redirect(
+            url_for('tile_management.tile_list')
+        )
+
+    return render_template(
+        'admin_templates/tile_templates/new_tile_form.html'
+    )
+
+@tile_routes.route(
+    '/tiles/edit/<int:tile_id>',
+    methods=['GET', 'POST']
+)
 @admin_required
 def edit_tile(tile_id):
     tile = get_tile_by_id(tile_id)
-    old_tile_triggers = tile[3]
+
+    if tile is None:
+        flash('Tile not found.', 'danger')
+        return redirect(
+            url_for('tile_management.tile_list')
+        )
+
     if request.method == 'POST':
-        new_tile_id = request.form.get('tile_id')
-        tile_name = request.form.get('tile_name')
-        tile_type = request.form.get('tile_type')
-        if tile_type not in ALLOWED_TILE_TYPES:
-            flash('Invalid tile type.', 'danger')
-            return redirect(url_for('tile_management.edit_tile', tile_id=tile_id))
-        tile_triggers = request.form.get('tile_triggers')
-        tile_trigger_weights = request.form.get('tile_trigger_weights')
-        tile_unique_drops = request.form.get('tile_unique_drops')
-        tile_triggers_required = request.form.get('tile_triggers_required')
-        tile_repetition = request.form.get('tile_repetition')
-        tile_points = request.form.get('tile_points')
-        tile_rules = request.form.get('tile_rules')
+        tile_name = request.form.get(
+            'tile_name',
+            ''
+        ).strip()
 
-        # Assuming you have a function to update the entire tile or update each field individually
-        update_tile(tile_id,new_tile_id, tile_name, tile_type, old_tile_triggers, tile_triggers, tile_trigger_weights, tile_unique_drops, tile_triggers_required,
-                    tile_repetition, tile_points, tile_rules)
+        tile_points = request.form.get(
+            'tile_points'
+        )
 
-        flash('Tile updated successfully!', 'success')
-        return redirect(url_for('tile_management.tile_list'))
+        tile_rules = request.form.get(
+            'tile_rules',
+            ''
+        ).strip()
 
-    return render_template('admin_templates/tile_templates/edit_tile.html', tile=tile)
+        completion_paths = request.form.getlist(
+            'completion_path'
+        )
+
+        condition_types = request.form.getlist(
+            'condition_type'
+        )
+
+        condition_triggers = request.form.getlist(
+            'condition_trigger'
+        )
+
+        condition_targets = request.form.getlist(
+            'condition_target'
+        )
+
+        if not tile_name:
+            flash('Tile name is required.', 'danger')
+            return redirect(
+                url_for(
+                    'tile_management.edit_tile',
+                    tile_id=tile_id
+                )
+            )
+
+        condition_count = len(condition_types)
+
+        if not (
+            condition_count
+            == len(completion_paths)
+            == len(condition_triggers)
+            == len(condition_targets)
+        ):
+            flash(
+                'The tile conditions were not submitted correctly.',
+                'danger'
+            )
+            return redirect(
+                url_for(
+                    'tile_management.edit_tile',
+                    tile_id=tile_id
+                )
+            )
+
+        conditions = []
+
+        try:
+            for index in range(condition_count):
+                conditions.append(
+                    {
+                        "completion_path":
+                            int(completion_paths[index]),
+                        "condition_type":
+                            condition_types[index],
+                        "condition_trigger":
+                            condition_triggers[index],
+                        "target":
+                            int(condition_targets[index])
+                    }
+                )
+
+            update_tile_with_conditions(
+                tile_id,
+                tile_name,
+                float(tile_points),
+                tile_rules,
+                conditions
+            )
+
+        except (TypeError, ValueError, KeyError) as error:
+            flash(str(error), 'danger')
+            return redirect(
+                url_for(
+                    'tile_management.edit_tile',
+                    tile_id=tile_id
+                )
+            )
+
+        flash(
+            'Tile updated successfully!',
+            'success'
+        )
+
+        return redirect(
+            url_for('tile_management.tile_list')
+        )
+
+    conditions = get_tile_conditions(tile_id)
+
+    return render_template(
+        'admin_templates/tile_templates/edit_tile.html',
+        tile=tile,
+        conditions=conditions
+    )
 
 @tile_routes.route('/tiles/delete/<int:tile_id>', methods=['POST'])
 @admin_required

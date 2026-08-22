@@ -1,68 +1,533 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h1 style="text-align: center; color: #fff;">Edit Tile</h1>
-    <form action="{{ url_for('tile_management.edit_tile', tile_id=tile[0]) }}" method="POST" style="width: 600px; min-width: 600px; margin: 0 auto; background-color: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);">
+<h1 style="text-align: center; color: #fff;">
+    Edit Tile
+</h1>
 
-        <div style="margin-bottom: 15px;">
-            <label for="tile_id" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Order:</label>
-            <input type="number" id="tile_id" name="tile_id" value="{{ tile[0] }}" required style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
-        </div>
+<form
+    action="{{ url_for('tile_management.edit_tile', tile_id=tile[0]) }}"
+    method="POST"
+    style="
+        width: calc(100% - 30px);
+        max-width: 760px;
+        margin: 0 auto;
+        background-color: #1e1e1e;
+        padding: 20px;
+        border-radius: 10px;
+        box-sizing: border-box;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+    "
+>
+    <div style="margin-bottom: 15px;">
+        <label
+            for="tile_name"
+            style="display: block; margin-bottom: 5px; color: #ccc;"
+        >
+            Tile Name:
+        </label>
 
-        <div style="margin-bottom: 15px;">
-            <label for="tile_name" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Name:</label>
-            <input type="text" id="tile_name" name="tile_name" value="{{ tile[1] }}" required style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
-        </div>
+        <input
+            type="text"
+            id="tile_name"
+            name="tile_name"
+            value="{{ tile[1] }}"
+            required
+            style="
+                width: 100%;
+                padding: 10px;
+                border: 1px solid #444;
+                border-radius: 5px;
+                background-color: #333;
+                color: #ccc;
+                box-sizing: border-box;
+            "
+        >
+    </div>
 
-        <div style="margin-bottom: 15px;">
-            <label for="tile_type" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Type:</label>
-            <select id="tile_type" name="tile_type" required style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
-                <option value="DROP" {% if tile[2] == "DROP" %}selected{% endif %}>DROP</option>
-                <option value="PET" {% if tile[2] == "PET" %}selected{% endif %}>PET</option>
-                <option value="KILLCOUNT" {% if tile[2] == "KILLCOUNT" %}selected{% endif %}>KILLCOUNT</option>
-                <option value="EXPERIENCE" {% if tile[2] == "EXPERIENCE" %}selected{% endif %}>EXPERIENCE</option>
-                <option value="MANUAL" {% if tile[2] == "MANUAL" %}selected{% endif %}>MANUAL</option>
-            </select>
-        </div>
+    <div style="margin-bottom: 15px;">
+        <label
+            for="tile_points"
+            style="display: block; margin-bottom: 5px; color: #ccc;"
+        >
+            Tile Points:
+        </label>
 
-        <div style="margin-bottom: 15px;">
-            <label for="tile_triggers" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Triggers:</label>
-            <input type="text" id="tile_triggers" name="tile_triggers" value="{{ tile[3] }}" style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
-        </div>
+        <input
+            type="number"
+            id="tile_points"
+            name="tile_points"
+            step="0.01"
+            min="0"
+            value="{{ tile[8] }}"
+            required
+            style="
+                width: 100%;
+                padding: 10px;
+                border: 1px solid #444;
+                border-radius: 5px;
+                background-color: #333;
+                color: #ccc;
+                box-sizing: border-box;
+            "
+        >
+    </div>
 
-        <div style="margin-bottom: 15px;">
-            <label for="tile_trigger_weights" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Trigger Weights:</label>
-            <input type="text" id="tile_trigger_weights" name="tile_trigger_weights" value="{{ tile[4] }}" style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
-        </div>
+    <div style="margin-bottom: 20px;">
+        <label
+            for="tile_rules"
+            style="display: block; margin-bottom: 5px; color: #ccc;"
+        >
+            Tile Rules:
+        </label>
 
-        <div style="margin-bottom: 15px;">
-            <label for="tile_unique_drops" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Unique Drops:</label>
-            <select id="tile_unique_drops" name="tile_unique_drops" style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
-                <option value="TRUE" {% if tile[5] == "TRUE" %}selected{% endif %}>TRUE</option>
-                <option value="FALSE" {% if tile[5] == "FALSE" %}selected{% endif %}>FALSE</option>
-            </select>
-        </div>
+        <textarea
+            id="tile_rules"
+            name="tile_rules"
+            style="
+                width: 100%;
+                padding: 10px;
+                border: 1px solid #444;
+                border-radius: 5px;
+                background-color: #333;
+                color: #ccc;
+                box-sizing: border-box;
+                resize: vertical;
+            "
+        >{{ tile[9] }}</textarea>
+    </div>
 
-        <div style="margin-bottom: 15px;">
-            <label for="tile_triggers_required" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Triggers Required:</label>
-            <input type="number" id="tile_triggers_required" name="tile_triggers_required" value="{{ tile[6] }}" style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
-        </div>
+    <hr style="border-color: #444; margin: 25px 0;">
 
-        <div style="margin-bottom: 15px;">
-            <label for="tile_repetition" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Repetition:</label>
-            <input type="number" id="tile_repetition" name="tile_repetition" value="{{ tile[7] }}" style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
-        </div>
+    <h2 style="color: #fff; margin-bottom: 5px;">
+        Completion Conditions
+    </h2>
 
-        <div style="margin-bottom: 15px;">
-            <label for="tile_points" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Points:</label>
-            <input type="number" id="tile_points" name="tile_points" step="0.01" value="{{ tile[8] }}" required style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box;">
-        </div>
+    <p style="color: #aaa; margin-top: 0;">
+        Conditions inside the same route are
+        <strong>AND</strong> requirements.
+        Separate routes are <strong>OR</strong> alternatives.
+    </p>
 
-        <div style="margin-bottom: 20px;">
-            <label for="tile_rules" style="display: block; margin-bottom: 5px; color: #ccc;">Tile Rules:</label>
-            <textarea id="tile_rules" name="tile_rules" style="width: 100%; padding: 10px; border: 1px solid #444; border-radius: 5px; background-color: #333; color: #ccc; box-sizing: border-box; resize:vertical;">{{ tile[9] }}</textarea>
-        </div>
+    <div id="completion-routes"></div>
 
-        <button type="submit" style="width: 100%; padding: 10px; background-color: #444; color: #fff; border: none; border-radius: 5px; font-size: 16px; cursor: pointer;">Update Tile</button>
-    </form>
+    <button
+        type="button"
+        onclick="addCompletionRoute()"
+        style="
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            background-color: #555;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        "
+    >
+        + Add OR Completion Route
+    </button>
+
+    <button
+        type="submit"
+        style="
+            width: 100%;
+            padding: 12px;
+            margin-top: 25px;
+            background-color: #444;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        "
+    >
+        Update Tile
+    </button>
+</form>
+
+<script>
+    let nextRouteNumber = 1;
+
+    function createConditionRow(routeNumber) {
+        const row = document.createElement('div');
+
+        row.className = 'condition-row';
+        row.style.cssText = `
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr auto;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: end;
+        `;
+
+        row.innerHTML = `
+            <input
+                type="hidden"
+                name="completion_path"
+                value="${routeNumber}"
+            >
+
+            <div>
+                <label style="
+                    display: block;
+                    margin-bottom: 5px;
+                    color: #ccc;
+                ">
+                    Type
+                </label>
+
+                <select
+                    name="condition_type"
+                    required
+                    onchange="conditionTypeChanged(this)"
+                    style="
+                        width: 100%;
+                        padding: 10px;
+                        border: 1px solid #444;
+                        border-radius: 5px;
+                        background-color: #333;
+                        color: #ccc;
+                        box-sizing: border-box;
+                    "
+                >
+                    <option value="KILLCOUNT">Killcount</option>
+                    <option value="EXPERIENCE">Experience</option>
+                    <option value="DROP">Drop</option>
+                    <option value="PET">Pet</option>
+                    <option value="MANUAL">Manual</option>
+                </select>
+            </div>
+
+            <div>
+                <label style="
+                    display: block;
+                    margin-bottom: 5px;
+                    color: #ccc;
+                ">
+                    Boss / Skill / Item / Pet
+                </label>
+
+                <input
+                    type="text"
+                    name="condition_trigger"
+                    required
+                    style="
+                        width: 100%;
+                        padding: 10px;
+                        border: 1px solid #444;
+                        border-radius: 5px;
+                        background-color: #333;
+                        color: #ccc;
+                        box-sizing: border-box;
+                    "
+                >
+            </div>
+
+            <div>
+                <label style="
+                    display: block;
+                    margin-bottom: 5px;
+                    color: #ccc;
+                ">
+                    Amount
+                </label>
+
+                <input
+                    type="number"
+                    name="condition_target"
+                    value="1"
+                    min="1"
+                    required
+                    style="
+                        width: 100%;
+                        padding: 10px;
+                        border: 1px solid #444;
+                        border-radius: 5px;
+                        background-color: #333;
+                        color: #ccc;
+                        box-sizing: border-box;
+                    "
+                >
+            </div>
+
+            <button
+                type="button"
+                onclick="removeCondition(this)"
+                title="Remove condition"
+                style="
+                    padding: 10px 14px;
+                    background-color: #663333;
+                    color: #fff;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                "
+            >
+                X
+            </button>
+        `;
+
+        return row;
+    }
+
+    function addCompletionRoute(existingRouteNumber = null) {
+        const routeNumber = (
+            existingRouteNumber === null
+                ? nextRouteNumber
+                : Number(existingRouteNumber)
+        );
+
+        nextRouteNumber = Math.max(
+            nextRouteNumber,
+            routeNumber + 1
+        );
+
+        const routes = document.getElementById(
+            'completion-routes'
+        );
+
+        const route = document.createElement('div');
+
+        route.className = 'completion-route';
+        route.dataset.routeNumber = routeNumber;
+
+        route.style.cssText = `
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            background-color: #282828;
+        `;
+
+        route.innerHTML = `
+            <div style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 12px;
+            ">
+                <strong style="color: #fff;">
+                    Completion Route ${routeNumber}
+                </strong>
+
+                <button
+                    type="button"
+                    onclick="removeRoute(this)"
+                    style="
+                        padding: 7px 10px;
+                        background-color: #663333;
+                        color: #fff;
+                        border: none;
+                        border-radius: 5px;
+                        cursor: pointer;
+                    "
+                >
+                    Remove Route
+                </button>
+            </div>
+
+            <div class="conditions"></div>
+
+            <button
+                type="button"
+                onclick="addCondition(this)"
+                style="
+                    width: 100%;
+                    padding: 9px;
+                    margin-top: 5px;
+                    background-color: #3d3d3d;
+                    color: #fff;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                "
+            >
+                + Add AND Condition
+            </button>
+        `;
+
+        routes.appendChild(route);
+
+        const conditions = route.querySelector('.conditions');
+        conditions.appendChild(
+            createConditionRow(routeNumber)
+        );
+    }
+
+    function addCondition(button) {
+        const route = button.closest('.completion-route');
+        const routeNumber = route.dataset.routeNumber;
+        const conditions = route.querySelector('.conditions');
+
+        conditions.appendChild(
+            createConditionRow(routeNumber)
+        );
+    }
+
+    function removeCondition(button) {
+        const route = button.closest('.completion-route');
+        const conditions = route.querySelectorAll(
+            '.condition-row'
+        );
+
+        if (conditions.length <= 1) {
+            alert(
+                'A completion route must contain at least one condition.'
+            );
+            return;
+        }
+
+        button.closest('.condition-row').remove();
+    }
+
+    function removeRoute(button) {
+        const routes = document.querySelectorAll(
+            '.completion-route'
+        );
+
+        if (routes.length <= 1) {
+            alert(
+                'A tile must contain at least one completion route.'
+            );
+            return;
+        }
+
+        button.closest('.completion-route').remove();
+    }
+
+    function conditionTypeChanged(select) {
+        const row = select.closest('.condition-row');
+        const trigger = row.querySelector(
+            '[name="condition_trigger"]'
+        );
+        const target = row.querySelector(
+            '[name="condition_target"]'
+        );
+
+        if (select.value === 'MANUAL') {
+            trigger.value = '';
+            trigger.required = false;
+            trigger.disabled = false;
+            trigger.placeholder = 'Not required';
+            target.value = 1;
+            target.readOnly = true;
+        } else {
+            trigger.required = true;
+            trigger.placeholder = '';
+            target.readOnly = false;
+        }
+    }
+
+    const existingConditions = {{ conditions | tojson }};
+
+    function populateConditionRow(row, condition) {
+        const type = row.querySelector(
+            '[name="condition_type"]'
+        );
+        const trigger = row.querySelector(
+            '[name="condition_trigger"]'
+        );
+        const target = row.querySelector(
+            '[name="condition_target"]'
+        );
+
+        type.value = condition[3];
+
+        trigger.value = (
+            condition[4] === null
+                ? ''
+                : condition[4]
+        );
+
+        target.value = condition[5];
+
+        conditionTypeChanged(type);
+    }
+
+    function loadExistingConditions() {
+        const groupedConditions = {};
+
+        existingConditions.forEach(condition => {
+            const completionPath = condition[2];
+
+            if (!groupedConditions[completionPath]) {
+                groupedConditions[completionPath] = [];
+            }
+
+            groupedConditions[completionPath].push(
+                condition
+            );
+        });
+
+        const paths = Object.keys(
+            groupedConditions
+        ).sort(
+            (a, b) => Number(a) - Number(b)
+        );
+
+        paths.forEach(path => {
+            addCompletionRoute(Number(path));
+
+            const routes = document.querySelectorAll(
+                '.completion-route'
+            );
+
+            const route = routes[routes.length - 1];
+
+            const routeConditions =
+                groupedConditions[path];
+
+            let rows = route.querySelectorAll(
+                '.condition-row'
+            );
+
+            populateConditionRow(
+                rows[0],
+                routeConditions[0]
+            );
+
+            for (
+                let index = 1;
+                index < routeConditions.length;
+                index += 1
+            ) {
+                const addButton = route.querySelector(
+                    'button[onclick="addCondition(this)"]'
+                );
+
+                addCondition(addButton);
+
+                rows = route.querySelectorAll(
+                    '.condition-row'
+                );
+
+                populateConditionRow(
+                    rows[rows.length - 1],
+                    routeConditions[index]
+                );
+            }
+        });
+    }
+
+    if (existingConditions.length > 0) {
+        loadExistingConditions();
+    } else {
+        addCompletionRoute();
+    }
+
+</script>
+
+<style>
+    @media (max-width: 650px) {
+        .condition-row {
+            grid-template-columns: 1fr !important;
+        }
+
+        .condition-row button {
+            width: 100%;
+        }
+    }
+</style>
 {% endblock %}

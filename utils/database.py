@@ -1372,6 +1372,290 @@ def add_tile(tile_name, tile_type, tile_triggers, tile_trigger_weights, tile_uni
     return available_id
 
 
+def update_tile_with_conditions(
+    tile_id,
+    tile_name,
+    tile_points,
+    tile_rules,
+    conditions
+):
+    if not conditions:
+        raise ValueError(
+            "A tile must have at least one completion condition."
+        )
+
+    valid_types = {
+        "KILLCOUNT",
+        "EXPERIENCE",
+        "DROP",
+        "PET",
+        "MANUAL"
+    }
+
+    normalised_conditions = []
+
+    for condition in conditions:
+        completion_path = int(
+            condition["completion_path"]
+        )
+
+        condition_type = str(
+            condition["condition_type"]
+        ).strip().upper()
+
+        condition_trigger = condition.get(
+            "condition_trigger"
+        )
+
+        target = int(
+            condition.get("target", 1)
+        )
+
+        if completion_path < 1:
+            raise ValueError(
+                "Completion paths must start at 1."
+            )
+
+        if condition_type not in valid_types:
+            raise ValueError(
+                f"Invalid condition type: {condition_type}"
+            )
+
+        if target < 1:
+            raise ValueError(
+                "Condition targets must be greater than 0."
+            )
+
+        if condition_trigger is not None:
+            condition_trigger = str(
+                condition_trigger
+            ).strip()
+
+            if condition_trigger == "":
+                condition_trigger = None
+
+        if (
+            condition_type != "MANUAL"
+            and condition_trigger is None
+        ):
+            raise ValueError(
+                f"{condition_type} conditions require a trigger."
+            )
+
+        normalised_conditions.append(
+            {
+                "completion_path": completion_path,
+                "condition_type": condition_type,
+                "condition_trigger": condition_trigger,
+                "target": target
+            }
+        )
+
+    condition_types = {
+        condition["condition_type"]
+        for condition in normalised_conditions
+    }
+
+    if len(condition_types) == 1:
+        tile_type = next(iter(condition_types))
+    else:
+        tile_type = "MIXED"
+
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT tile_points
+            FROM tiles
+            WHERE tile_id = %s
+            FOR UPDATE
+            ''',
+            (tile_id,)
+        )
+
+        tile_row = cursor.fetchone()
+
+        if tile_row is None:
+            raise ValueError(
+                f"Tile {tile_id} does not exist."
+            )
+
+        existing_tile_points = float(tile_row[0])
+
+        new_tile_points = float(tile_points)
+
+        if abs(
+            new_tile_points - existing_tile_points
+        ) > 1e-9:
+            cursor.execute(
+                '''
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM completed_tiles
+                    WHERE tile_id = %s
+                )
+                ''',
+                (tile_id,)
+            )
+
+            if cursor.fetchone()[0]:
+                raise ValueError(
+                    "Tile points cannot be changed "
+                    "after this tile has been completed."
+                )
+
+        cursor.execute(
+            '''
+            SELECT
+                completion_path,
+                condition_type,
+                condition_trigger,
+                target
+            FROM tile_conditions
+            WHERE tile_id = %s
+            ORDER BY
+                completion_path,
+                condition_id
+            ''',
+            (tile_id,)
+        )
+
+        existing_conditions = [
+            {
+                "completion_path": int(row[0]),
+                "condition_type":
+                    str(row[1]).strip().upper(),
+                "condition_trigger": (
+                    str(row[2]).strip()
+                    if row[2] is not None
+                    else None
+                ),
+                "target": int(row[3])
+            }
+            for row in cursor.fetchall()
+        ]
+
+        conditions_changed = (
+            existing_conditions
+            != normalised_conditions
+        )
+
+        if conditions_changed:
+            cursor.execute(
+                '''
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM partial_completions
+                    WHERE tile_id = %s
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM completed_tiles
+                    WHERE tile_id = %s
+                )
+                ''',
+                (
+                    tile_id,
+                    tile_id
+                )
+            )
+
+            has_progress = cursor.fetchone()[0]
+
+            if has_progress:
+                raise ValueError(
+                    "Completion conditions cannot be changed "
+                    "after progress has been recorded for this tile."
+                )
+
+        cursor.execute(
+            '''
+            UPDATE tiles
+            SET
+                tile_name = %s,
+                tile_type = %s,
+                tile_triggers = %s,
+                tile_trigger_weights = %s,
+                tile_unique_drops = %s,
+                tile_triggers_required = %s,
+                tile_repetition = %s,
+                tile_points = %s,
+                tile_rules = %s
+            WHERE tile_id = %s
+            ''',
+            (
+                tile_name,
+                tile_type,
+                "",
+                None,
+                False,
+                0,
+                1,
+                tile_points,
+                tile_rules,
+                tile_id
+            )
+        )
+
+        if conditions_changed:
+            cursor.execute(
+                '''
+                DELETE FROM drop_whitelist
+                WHERE tile_id = %s
+                ''',
+                (tile_id,)
+            )
+
+            cursor.execute(
+                '''
+                DELETE FROM tile_conditions
+                WHERE tile_id = %s
+                ''',
+                (tile_id,)
+            )
+
+            for condition in normalised_conditions:
+                cursor.execute(
+                    '''
+                    INSERT INTO tile_conditions (
+                        tile_id,
+                        completion_path,
+                        condition_type,
+                        condition_trigger,
+                        target
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    ''',
+                    (
+                        tile_id,
+                        condition["completion_path"],
+                        condition["condition_type"],
+                        condition["condition_trigger"],
+                        condition["target"]
+                    )
+                )
+
+                if condition["condition_type"] == "DROP":
+                    cursor.execute(
+                        '''
+                        INSERT INTO drop_whitelist (
+                            drop_name,
+                            tile_id
+                        )
+                        VALUES (%s, %s)
+                        ON CONFLICT (drop_name)
+                        DO NOTHING
+                        ''',
+                        (
+                            condition["condition_trigger"],
+                            tile_id
+                        )
+                    )
+
+        conn.commit()
+
+
 def add_tile_with_conditions(
     tile_name,
     tile_points,
