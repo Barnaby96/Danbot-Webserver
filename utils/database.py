@@ -1177,6 +1177,32 @@ def get_tile_conditions(tile_id):
         return cursor.fetchall()
 
 
+def get_wom_tile_conditions():
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT
+                condition_id,
+                tile_id,
+                completion_path,
+                condition_type,
+                condition_trigger,
+                target
+            FROM tile_conditions
+            WHERE condition_type IN (
+                'KILLCOUNT',
+                'EXPERIENCE'
+            )
+            ORDER BY
+                tile_id,
+                completion_path,
+                condition_id
+            '''
+        )
+        return cursor.fetchall()
+
+
 def update_tile_trigger(tile_id, tile_trigger):
     with connect() as conn:
         cursor = conn.cursor()
