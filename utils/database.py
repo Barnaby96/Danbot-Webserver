@@ -105,6 +105,15 @@ def ensure_schema():
             )
         ''')
 
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_completed_tiles_team_tile
+            ON completed_tiles (
+                team_id,
+                tile_id
+            )
+        ''')
+
 
         cursor.execute('''
             ALTER TABLE teams
@@ -1738,6 +1747,15 @@ def reset_tables():
                 completed_tile_pk SERIAL PRIMARY KEY,
                 FOREIGN KEY (tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE,
                 FOREIGN KEY (team_id) REFERENCES teams(team_id) ON DELETE CASCADE
+            )
+            ''')
+
+    cursor.execute('''
+            CREATE UNIQUE INDEX
+                idx_completed_tiles_team_tile
+            ON completed_tiles (
+                team_id,
+                tile_id
             )
             ''')
 
