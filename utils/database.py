@@ -196,6 +196,266 @@ def get_wom_last_processed_gain(
     return row[0]
 
 
+def apply_wom_metric_progress(
+    competition_id,
+    player_id,
+    condition_type,
+    metric,
+    current_gain
+):
+    condition_type = str(condition_type).strip().upper()
+    metric = str(metric).strip().lower()
+    current_gain = int(current_gain)
+
+    if condition_type not in {
+        "KILLCOUNT",
+        "EXPERIENCE"
+    }:
+        raise ValueError(
+            "WOM progress can only be applied to "
+            "KILLCOUNT or EXPERIENCE conditions."
+        )
+
+    if current_gain < 0:
+        raise ValueError(
+            "WOM competition gain cannot be negative."
+        )
+
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT team_id
+            FROM players
+            WHERE player_id = %s
+            FOR UPDATE
+            ''',
+            (player_id,)
+        )
+        player_row = cursor.fetchone()
+
+        if player_row is None:
+            raise ValueError(
+                f"Player {player_id} does not exist."
+            )
+
+        team_id = player_row[0]
+
+        cursor.execute(
+            '''
+            INSERT INTO wom_metric_state (
+                competition_id,
+                player_id,
+                metric,
+                last_processed_gain
+            )
+            VALUES (%s, %s, %s, 0)
+            ON CONFLICT (
+                competition_id,
+                player_id,
+                metric
+            )
+            DO NOTHING
+            ''',
+            (
+                competition_id,
+                player_id,
+                metric
+            )
+        )
+
+        cursor.execute(
+            '''
+            SELECT last_processed_gain
+            FROM wom_metric_state
+            WHERE competition_id = %s
+              AND player_id = %s
+              AND metric = %s
+            FOR UPDATE
+            ''',
+            (
+                competition_id,
+                player_id,
+                metric
+            )
+        )
+        last_processed_gain = cursor.fetchone()[0]
+
+        if current_gain > last_processed_gain:
+            new_gain = (
+                current_gain
+                - last_processed_gain
+            )
+        else:
+            new_gain = 0
+
+        cursor.execute(
+            '''
+            SELECT
+                condition_id,
+                tile_id,
+                target
+            FROM tile_conditions
+            WHERE condition_type = %s
+              AND lower(condition_trigger) = %s
+            ORDER BY tile_id, condition_id
+            ''',
+            (
+                condition_type,
+                metric
+            )
+        )
+        conditions = cursor.fetchall()
+
+        tile_results = []
+
+        for condition_id, tile_id, target in conditions:
+            target = int(target)
+
+            if target <= 0:
+                raise ValueError(
+                    f"Condition {condition_id} "
+                    "has an invalid target."
+                )
+
+            # Lock the tile so simultaneous progress updates
+            # cannot both claim the same remaining contribution.
+            cursor.execute(
+                '''
+                SELECT tile_id
+                FROM tiles
+                WHERE tile_id = %s
+                FOR UPDATE
+                ''',
+                (tile_id,)
+            )
+
+            if cursor.fetchone() is None:
+                continue
+
+            cursor.execute(
+                '''
+                SELECT 1
+                FROM completed_tiles
+                WHERE team_id = %s
+                  AND tile_id = %s
+                ''',
+                (
+                    team_id,
+                    tile_id
+                )
+            )
+
+            if cursor.fetchone() is not None:
+                continue
+
+            cursor.execute(
+                '''
+                SELECT COALESCE(
+                    SUM(partial_completion),
+                    0
+                )
+                FROM partial_completions
+                WHERE team_id = %s
+                  AND tile_id = %s
+                ''',
+                (
+                    team_id,
+                    tile_id
+                )
+            )
+
+            banked_before = float(
+                cursor.fetchone()[0]
+            )
+
+            remaining = round(
+                max(
+                    0.0,
+                    1.0 - banked_before
+                ),
+                12
+            )
+
+            contribution = round(
+                min(
+                    remaining,
+                    new_gain / target
+                ),
+                12
+            )
+
+            if contribution > 0:
+                cursor.execute(
+                    '''
+                    INSERT INTO partial_completions (
+                        player_id,
+                        team_id,
+                        tile_id,
+                        partial_completion
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (
+                        player_id,
+                        team_id,
+                        tile_id
+                    )
+                    DO UPDATE SET
+                        partial_completion =
+                            partial_completions.partial_completion
+                            + EXCLUDED.partial_completion
+                    ''',
+                    (
+                        player_id,
+                        team_id,
+                        tile_id,
+                        contribution
+                    )
+                )
+
+            banked_after = round(
+                banked_before + contribution,
+                12
+            )
+
+            tile_results.append(
+                {
+                    "condition_id": condition_id,
+                    "tile_id": tile_id,
+                    "credited": contribution,
+                    "banked_total": banked_after,
+                    "ready": banked_after >= 0.999999
+                }
+            )
+
+        if current_gain > last_processed_gain:
+            cursor.execute(
+                '''
+                UPDATE wom_metric_state
+                SET last_processed_gain = %s
+                WHERE competition_id = %s
+                  AND player_id = %s
+                  AND metric = %s
+                ''',
+                (
+                    current_gain,
+                    competition_id,
+                    player_id,
+                    metric
+                )
+            )
+
+        conn.commit()
+
+    return {
+        "previous_gain": last_processed_gain,
+        "current_gain": current_gain,
+        "new_gain": new_gain,
+        "tiles": tile_results
+    }
+
+
 def set_wom_last_processed_gain(
     competition_id,
     player_id,
