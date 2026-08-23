@@ -1,4 +1,5 @@
 import os
+import hashlib
 from collections import defaultdict
 
 from flask import Blueprint, jsonify, request
@@ -9,6 +10,456 @@ from utils.db_entities import Player, Team, Tile, Drop
 from utils.send_webhook import send_webhook
 
 drop_submission_route = Blueprint("dink", __name__)
+
+
+def create_dink_event_fingerprint(
+    data,
+    screenshot_sha256=None
+):
+    canonical_payload = json.dumps(
+        data,
+        sort_keys=True,
+        separators=(',', ':'),
+        ensure_ascii=False
+    )
+
+    fingerprint_source = canonical_payload
+
+    if screenshot_sha256 is not None:
+        fingerprint_source += f":{screenshot_sha256}"
+
+    return hashlib.sha256(
+        fingerprint_source.encode('utf-8')
+    ).hexdigest()
+
+
+def get_uploaded_file_sha256(img_file):
+    if img_file is None:
+        return None
+
+    img_file.stream.seek(0)
+    file_bytes = img_file.stream.read()
+    img_file.stream.seek(0)
+
+    return hashlib.sha256(file_bytes).hexdigest()
+
+
+def save_dink_evidence_screenshot(
+    img_file,
+    event_id
+):
+    if img_file is None:
+        return None
+
+    extension = os.path.splitext(
+        img_file.filename or ''
+    )[1].lower()
+
+    allowed_extensions = {
+        '.png',
+        '.jpg',
+        '.jpeg',
+        '.webp'
+    }
+
+    if extension not in allowed_extensions:
+        extension = '.png'
+
+    project_root = os.path.dirname(
+        os.path.dirname(
+            os.path.abspath(__file__)
+        )
+    )
+
+    evidence_directory = os.path.join(
+        project_root,
+        'uploads',
+        'dink_evidence'
+    )
+
+    os.makedirs(
+        evidence_directory,
+        exist_ok=True
+    )
+
+    filename = f'dink_event_{event_id}{extension}'
+
+    absolute_path = os.path.join(
+        evidence_directory,
+        filename
+    )
+
+    img_file.stream.seek(0)
+    img_file.save(absolute_path)
+    img_file.stream.seek(0)
+
+    return os.path.join(
+        'uploads',
+        'dink_evidence',
+        filename
+    )
+
+
+def get_dink_request_payload():
+    img_file = request.files.get('file')
+
+    if request.is_json:
+        data = request.get_json(silent=True)
+
+        if not isinstance(data, dict):
+            raise ValueError(
+                "Dink JSON payload must be an object"
+            )
+
+        return data, img_file
+
+    json_data = request.form.get('payload_json')
+
+    if json_data is None:
+        raise ValueError(
+            "Request did not contain a Dink payload"
+        )
+
+    data = json.loads(json_data)
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            "Dink payload_json must contain a JSON object"
+        )
+
+    return data, img_file
+
+def get_dink_event_progress(data):
+    event_type = str(
+        data.get('type', '')
+    ).strip().upper()
+
+    extra = data.get('extra')
+
+    if not isinstance(extra, dict):
+        return []
+
+    if event_type == 'LOOT':
+        items = extra.get('items')
+
+        if not isinstance(items, list):
+            raise ValueError(
+                "Dink LOOT payload did not contain a valid items list"
+            )
+
+        progress_items = []
+
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError(
+                    "Dink LOOT payload contained an invalid item"
+                )
+
+            item_name = item.get('name')
+            quantity = item.get('quantity', 1)
+
+            if not isinstance(item_name, str) or not item_name.strip():
+                raise ValueError(
+                    "Dink LOOT item did not contain a valid name"
+                )
+
+            try:
+                quantity = int(quantity)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"Dink LOOT item {item_name} "
+                    f"contained an invalid quantity"
+                )
+
+            if quantity < 1:
+                raise ValueError(
+                    f"Dink LOOT item {item_name} "
+                    f"contained an invalid quantity"
+                )
+
+            progress_items.append(
+                {
+                    "condition_type": "DROP",
+                    "trigger": item_name.strip(),
+                    "amount": quantity
+                }
+            )
+
+        return progress_items
+
+    if event_type == 'PET':
+        pet_name = extra.get('petName')
+
+        if not isinstance(pet_name, str) or not pet_name.strip():
+            raise ValueError(
+                "Dink PET payload did not contain a valid petName"
+            )
+
+        return [
+            {
+                "condition_type": "PET",
+                "trigger": pet_name.strip(),
+                "amount": 1
+            }
+        ]
+
+    return []
+
+def cleanup_ignored_dink_event(event_id):
+    screenshot_path = database.minimise_ignored_dink_event(
+        event_id
+    )
+
+    if not screenshot_path:
+        return
+
+    project_root = os.path.dirname(
+        os.path.dirname(
+            os.path.abspath(__file__)
+        )
+    )
+
+    screenshot_file = os.path.join(
+        project_root,
+        screenshot_path
+    )
+
+    try:
+        if os.path.isfile(screenshot_file):
+            os.remove(screenshot_file)
+
+        database.clear_dink_event_screenshot_path(
+            event_id
+        )
+    except OSError as e:
+        print(
+            f"Unable to delete ignored Dink screenshot "
+            f"{screenshot_file}: {e}"
+        )
+
+def process_pending_dink_events(
+    dink_account_hash,
+    player_id
+):
+    pending_events = (
+        database.get_pending_dink_events_by_hash(
+            dink_account_hash
+        )
+    )
+
+    processed_events = []
+
+    for (
+        event_id,
+        event_type,
+        raw_payload,
+        received_at
+    ) in pending_events:
+        event_progress = get_dink_event_progress(
+            raw_payload
+        )
+
+        result = database.process_dink_event_progress(
+            event_id=event_id,
+            player_id=player_id,
+            event_progress=event_progress
+        )
+
+        if result["status"] == "IGNORED":
+            cleanup_ignored_dink_event(
+                event_id
+            )
+
+        processed_events.append(
+            {
+                "event_id": event_id,
+                "event_type": event_type,
+                "received_at": received_at,
+                "result": result
+            }
+        )
+
+    return processed_events
+
+def ingest_dink_event(data, img_file=None):
+    player_name = data.get('playerName')
+    dink_account_hash = data.get('dinkAccountHash')
+    event_type = data.get('type')
+
+    if not isinstance(player_name, str) or not player_name.strip():
+        raise ValueError(
+            "Dink payload did not contain a valid playerName"
+        )
+
+    if (
+        not isinstance(dink_account_hash, str)
+        or not dink_account_hash.strip()
+    ):
+        raise ValueError(
+            "Dink payload did not contain a valid dinkAccountHash"
+        )
+
+    player_name = player_name.strip()
+    dink_account_hash = dink_account_hash.strip()
+
+    screenshot_sha256 = get_uploaded_file_sha256(
+        img_file
+    )
+
+    event_fingerprint = create_dink_event_fingerprint(
+        data,
+        screenshot_sha256
+    )
+
+    recent_event = (
+        database.get_recent_dink_event_by_fingerprint(
+            event_fingerprint
+        )
+    )
+
+    if recent_event is not None:
+        (
+            original_event_id,
+            _,
+            original_status,
+            original_player_id,
+            original_dink_account_hash
+        ) = recent_event
+
+        event_id = database.add_dink_event(
+            event_fingerprint=event_fingerprint,
+            raw_payload=data,
+            dink_account_hash=dink_account_hash,
+            player_name=player_name,
+            event_type=event_type,
+            duplicate_of_event_id=original_event_id,
+            status='IGNORED'
+        )
+
+        cleanup_ignored_dink_event(
+            event_id
+        )
+
+        if (
+            original_status == 'RECEIVED'
+            and original_player_id is not None
+            and original_dink_account_hash == dink_account_hash
+        ):
+            return {
+                'event_id': event_id,
+                'processing_event_id': original_event_id,
+                'status': 'RETRY',
+                'player_id': original_player_id,
+                'observations': (
+                    database.count_dink_hash_observations(
+                        dink_account_hash
+                    )
+                )
+            }
+
+        return {
+            'event_id': event_id,
+            'processing_event_id': None,
+            'status': 'DUPLICATE',
+            'player_id': None,
+            'observations': None
+        }
+
+    event_id = database.add_dink_event(
+        event_fingerprint=event_fingerprint,
+        raw_payload=data,
+        dink_account_hash=dink_account_hash,
+        player_name=player_name,
+        event_type=event_type
+    )
+
+    if img_file is not None:
+        screenshot_path = save_dink_evidence_screenshot(
+            img_file,
+            event_id
+        )
+
+        database.update_dink_event_screenshot(
+            event_id,
+            screenshot_path,
+            screenshot_sha256
+        )
+
+    identity = database.get_dink_identity_by_hash(
+        dink_account_hash
+    )
+
+    # Once a Dink hash is linked, the hash becomes the stable
+    # identity rather than relying on the player's current RSN.
+    if identity is not None and identity[3] == 'LINKED':
+        player_id = identity[1]
+
+        database.update_dink_event_identity(
+            event_id,
+            player_id,
+            'RECEIVED'
+        )
+
+        return {
+            'event_id': event_id,
+            'status': 'LINKED',
+            'player_id': player_id,
+            'observations': (
+                database.count_dink_hash_observations(
+                    dink_account_hash
+                )
+            )
+        }
+
+    identity_status = database.record_pending_dink_identity(
+        dink_account_hash,
+        player_name
+    )
+
+    if identity_status == 'CONFLICT':
+        database.update_dink_event_identity(
+            event_id,
+            None,
+            'PENDING_IDENTITY'
+        )
+
+        return {
+            'event_id': event_id,
+            'status': 'CONFLICT',
+            'player_id': None,
+            'observations': None
+        }
+
+    link_result = database.try_link_dink_identity(
+        dink_account_hash,
+        player_name
+    )
+
+    if link_result['status'] == 'LINKED':
+        database.update_dink_event_identity(
+            event_id,
+            link_result['player_id'],
+            'RECEIVED'
+        )
+
+        process_pending_dink_events(
+            dink_account_hash,
+            link_result['player_id']
+        )
+
+    else:
+        database.update_dink_event_identity(
+            event_id,
+            None,
+            'PENDING_IDENTITY'
+        )
+
+    return {
+        'event_id': event_id,
+        'status': link_result['status'],
+        'player_id': link_result['player_id'],
+        'observations': link_result['observations']
+    }
 
 
 # function to parse death data
@@ -590,22 +1041,68 @@ def parse_json_data(json_data, img_file) -> dict[str, list[str]]:
 @drop_submission_route.route('', methods=['POST'])
 def handle_request():
     if os.getenv('TRACKING') == "FALSE":
-        return jsonify({"message": "Not currently tracking"})
+        return jsonify({
+            "message": "Not currently tracking"
+        })
 
-    data = request.form
     try:
-        img_file = request.files['file']
-    except:
-        img_file = None
-    if 'payload_json' in data:
-        json_data = data['payload_json']
-        try:
-            result = parse_json_data(json_data, img_file)
-        except Exception as e:
-            print("Error parsing JSON data: " + str(e))
-            print(json.dumps(json_data, indent=2))
-            return jsonify({"message": "Error parsing JSON data: " + str(e)})
+        data, img_file = get_dink_request_payload()
 
-    if result:
-        return jsonify({"message": "Drop successfully submitted"})
-    return jsonify({"message": "No action recorded"})
+        ingestion_result = ingest_dink_event(
+            data,
+            img_file
+        )
+
+        processing_result = None
+
+        if ingestion_result["status"] in (
+            "LINKED",
+            "RETRY"
+        ):
+            event_progress = get_dink_event_progress(
+                data
+            )
+
+            processing_event_id = (
+                ingestion_result.get("processing_event_id")
+                or ingestion_result["event_id"]
+            )
+
+            processing_result = (
+                database.process_dink_event_progress(
+                    event_id=processing_event_id,
+                    player_id=ingestion_result["player_id"],
+                    event_progress=event_progress
+                )
+            )
+
+            if processing_result["status"] == "IGNORED":
+                cleanup_ignored_dink_event(
+                    processing_event_id
+                )
+
+    except ValueError as e:
+        print(f"Invalid Dink request: {e}")
+
+        return jsonify({
+            "message": str(e)
+        }), 400
+
+    except Exception as e:
+        print(f"Error ingesting Dink request: {e}")
+
+        return jsonify({
+            "message": "Error ingesting Dink request"
+        }), 500
+
+    return jsonify({
+        "message": "Dink event received",
+        "event_id": ingestion_result["event_id"],
+        "identity_status": ingestion_result["status"],
+        "observations": ingestion_result["observations"],
+        "processing_status": (
+            processing_result["status"]
+            if processing_result is not None
+            else None
+        )
+    })

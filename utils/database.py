@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 import psycopg2
 from flask_bcrypt import Bcrypt
 from flask_login import UserMixin, logout_user
@@ -241,6 +242,135 @@ def ensure_schema():
                 config_id SMALLINT PRIMARY KEY
                     CHECK (config_id = 1),
                 wom_competition_id BIGINT
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dink_identities (
+                dink_account_hash TEXT PRIMARY KEY,
+                player_id INTEGER,
+                observed_rsn TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                first_seen TIMESTAMPTZ NOT NULL
+                    DEFAULT CURRENT_TIMESTAMP,
+                last_seen TIMESTAMPTZ NOT NULL
+                    DEFAULT CURRENT_TIMESTAMP,
+                linked_at TIMESTAMPTZ,
+                FOREIGN KEY (player_id)
+                    REFERENCES players(player_id)
+                    ON DELETE SET NULL,
+                CHECK (
+                    status IN (
+                        'PENDING',
+                        'LINKED',
+                        'CONFLICT'
+                    )
+                ),
+                CHECK (
+                    (
+                        status = 'LINKED'
+                        AND player_id IS NOT NULL
+                        AND linked_at IS NOT NULL
+                    )
+                    OR status != 'LINKED'
+                )
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_dink_identities_linked_player
+            ON dink_identities (player_id)
+            WHERE
+                status = 'LINKED'
+                AND player_id IS NOT NULL
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dink_events (
+                event_id BIGSERIAL PRIMARY KEY,
+                event_fingerprint TEXT NOT NULL,
+                duplicate_of_event_id BIGINT,
+                dink_account_hash TEXT,
+                player_name TEXT,
+                player_id INTEGER,
+                event_type TEXT,
+                raw_payload JSONB NOT NULL,
+                screenshot_path TEXT,
+                screenshot_sha256 TEXT,
+                status TEXT NOT NULL DEFAULT 'RECEIVED',
+                received_at TIMESTAMPTZ NOT NULL
+                    DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMPTZ,
+                FOREIGN KEY (duplicate_of_event_id)
+                    REFERENCES dink_events(event_id)
+                    ON DELETE SET NULL,
+                FOREIGN KEY (player_id)
+                    REFERENCES players(player_id)
+                    ON DELETE SET NULL,
+                CHECK (
+                    status IN (
+                        'RECEIVED',
+                        'PENDING_IDENTITY',
+                        'PROCESSED',
+                        'IGNORED',
+                        'REJECTED',
+                        'ERROR'
+                    )
+                )
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dink_event_progress (
+                progress_id BIGSERIAL PRIMARY KEY,
+                event_id BIGINT NOT NULL,
+                condition_id INTEGER NOT NULL,
+                tile_id INTEGER NOT NULL,
+                completion_path INTEGER NOT NULL,
+                trigger TEXT NOT NULL,
+                amount BIGINT NOT NULL,
+                raw_progress BIGINT NOT NULL,
+                route_progress NUMERIC(18, 12) NOT NULL,
+                credited NUMERIC(18, 12) NOT NULL,
+                banked_total NUMERIC(18, 12) NOT NULL,
+                ready BOOLEAN NOT NULL,
+                completed BOOLEAN NOT NULL,
+                processed_at TIMESTAMPTZ NOT NULL
+                    DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (event_id)
+                    REFERENCES dink_events(event_id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (condition_id)
+                    REFERENCES tile_conditions(condition_id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (tile_id)
+                    REFERENCES tiles(tile_id)
+                    ON DELETE CASCADE,
+                CHECK (amount > 0)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS
+                idx_dink_event_progress_event
+            ON dink_event_progress (event_id)
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_dink_events_fingerprint
+            ON dink_events (
+                event_fingerprint,
+                received_at
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_dink_events_identity
+            ON dink_events (
+                dink_account_hash,
+                player_name,
+                received_at
             )
         ''')
 
@@ -1383,6 +1513,767 @@ def link_player_to_discord(player_id, discord_user_id):
             """,
             (discord_user_id, player_id)
         )
+
+def get_dink_identity_by_hash(dink_account_hash):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT
+                dink_account_hash,
+                player_id,
+                observed_rsn,
+                status,
+                first_seen,
+                last_seen,
+                linked_at
+            FROM dink_identities
+            WHERE dink_account_hash = %s
+            ''',
+            (dink_account_hash,)
+        )
+        return cursor.fetchone()
+
+def get_recent_dink_event_by_fingerprint(
+    event_fingerprint,
+    retry_window_seconds=300
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT
+                event_id,
+                received_at,
+                status,
+                player_id,
+                dink_account_hash
+            FROM dink_events
+            WHERE event_fingerprint = %s
+              AND duplicate_of_event_id IS NULL
+              AND received_at >= (
+                  CURRENT_TIMESTAMP
+                  - (%s * INTERVAL '1 second')
+              )
+            ORDER BY received_at DESC
+            LIMIT 1
+            ''',
+            (
+                event_fingerprint,
+                retry_window_seconds
+            )
+        )
+        return cursor.fetchone()
+
+def count_dink_identity_observations(
+    dink_account_hash,
+    player_name
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT COUNT(*)
+            FROM dink_events
+            WHERE dink_account_hash = %s
+              AND lower(player_name) = lower(%s)
+              AND duplicate_of_event_id IS NULL
+            ''',
+            (
+                dink_account_hash,
+                player_name
+            )
+        )
+        return cursor.fetchone()[0]
+
+def count_dink_hash_observations(dink_account_hash):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT COUNT(*)
+            FROM dink_events
+            WHERE dink_account_hash = %s
+              AND duplicate_of_event_id IS NULL
+            ''',
+            (dink_account_hash,)
+        )
+        return cursor.fetchone()[0]
+
+def record_pending_dink_identity(
+    dink_account_hash,
+    player_name
+    ):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                observed_rsn,
+                status
+            FROM dink_identities
+            WHERE dink_account_hash = %s
+            FOR UPDATE
+            ''',
+            (dink_account_hash,)
+        )
+
+        existing = cursor.fetchone()
+
+        if existing is None:
+            cursor.execute(
+                '''
+                INSERT INTO dink_identities (
+                    dink_account_hash,
+                    observed_rsn,
+                    status
+                )
+                VALUES (%s, %s, 'PENDING')
+                ''',
+                (
+                    dink_account_hash,
+                    player_name
+                )
+            )
+
+            conn.commit()
+            return 'PENDING'
+
+        observed_rsn, status = existing
+
+        if observed_rsn.lower() != player_name.lower():
+            cursor.execute(
+                '''
+                UPDATE dink_identities
+                SET
+                    status = 'CONFLICT',
+                    last_seen = CURRENT_TIMESTAMP
+                WHERE dink_account_hash = %s
+                ''',
+                (dink_account_hash,)
+            )
+
+            conn.commit()
+            return 'CONFLICT'
+
+        cursor.execute(
+            '''
+            UPDATE dink_identities
+            SET last_seen = CURRENT_TIMESTAMP
+            WHERE dink_account_hash = %s
+            ''',
+            (dink_account_hash,)
+        )
+
+        conn.commit()
+        return status
+
+def try_link_dink_identity(
+    dink_account_hash,
+    player_name,
+    required_observations=3
+    ):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                player_id,
+                observed_rsn,
+                status
+            FROM dink_identities
+            WHERE dink_account_hash = %s
+            FOR UPDATE
+            ''',
+            (dink_account_hash,)
+        )
+
+        identity = cursor.fetchone()
+
+        if identity is None:
+            return {
+                'status': 'PENDING',
+                'observations': 0,
+                'player_id': None
+            }
+
+        linked_player_id, observed_rsn, status = identity
+
+        if status == 'CONFLICT':
+            return {
+                'status': 'CONFLICT',
+                'observations': 0,
+                'player_id': linked_player_id
+            }
+
+        if observed_rsn.lower() != player_name.lower():
+            cursor.execute(
+                '''
+                UPDATE dink_identities
+                SET
+                    status = 'CONFLICT',
+                    last_seen = CURRENT_TIMESTAMP
+                WHERE dink_account_hash = %s
+                ''',
+                (dink_account_hash,)
+            )
+            conn.commit()
+
+            return {
+                'status': 'CONFLICT',
+                'observations': 0,
+                'player_id': None
+            }
+
+        cursor.execute(
+            '''
+            SELECT COUNT(*)
+            FROM dink_events
+            WHERE dink_account_hash = %s
+              AND lower(player_name) = lower(%s)
+              AND duplicate_of_event_id IS NULL
+            ''',
+            (
+                dink_account_hash,
+                player_name
+            )
+        )
+
+        observations = cursor.fetchone()[0]
+
+        if status == 'LINKED':
+            return {
+                'status': 'LINKED',
+                'observations': observations,
+                'player_id': linked_player_id
+            }
+
+        if observations < required_observations:
+            return {
+                'status': 'PENDING',
+                'observations': observations,
+                'player_id': None
+            }
+
+        cursor.execute(
+            '''
+            SELECT player_id
+            FROM players
+            WHERE lower(player_name) = lower(%s)
+            ''',
+            (player_name,)
+        )
+
+        player = cursor.fetchone()
+
+        if player is None:
+            return {
+                'status': 'PLAYER_NOT_FOUND',
+                'observations': observations,
+                'player_id': None
+            }
+
+        player_id = player[0]
+
+        cursor.execute(
+            '''
+            SELECT dink_account_hash
+            FROM dink_identities
+            WHERE player_id = %s
+              AND status = 'LINKED'
+              AND dink_account_hash != %s
+            LIMIT 1
+            ''',
+            (
+                player_id,
+                dink_account_hash
+            )
+        )
+
+        existing_link = cursor.fetchone()
+
+        if existing_link is not None:
+            cursor.execute(
+                '''
+                UPDATE dink_identities
+                SET
+                    status = 'CONFLICT',
+                    last_seen = CURRENT_TIMESTAMP
+                WHERE dink_account_hash = %s
+                ''',
+                (dink_account_hash,)
+            )
+            conn.commit()
+
+            return {
+                'status': 'CONFLICT',
+                'observations': observations,
+                'player_id': None
+            }
+
+        cursor.execute(
+            '''
+            UPDATE dink_identities
+            SET
+                player_id = %s,
+                status = 'LINKED',
+                linked_at = CURRENT_TIMESTAMP,
+                last_seen = CURRENT_TIMESTAMP
+            WHERE dink_account_hash = %s
+            ''',
+            (
+                player_id,
+                dink_account_hash
+            )
+        )
+
+        conn.commit()
+
+        return {
+            'status': 'LINKED',
+            'observations': observations,
+            'player_id': player_id
+        }
+
+def add_dink_event(
+    event_fingerprint,
+    raw_payload,
+    dink_account_hash=None,
+    player_name=None,
+    player_id=None,
+    event_type=None,
+    screenshot_path=None,
+    screenshot_sha256=None,
+    duplicate_of_event_id=None,
+    status='RECEIVED'
+    ):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO dink_events (
+                event_fingerprint,
+                duplicate_of_event_id,
+                dink_account_hash,
+                player_name,
+                player_id,
+                event_type,
+                raw_payload,
+                screenshot_path,
+                screenshot_sha256,
+                status,
+                processed_at
+            )
+            VALUES (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s::jsonb,
+                %s,
+                %s,
+                %s,
+                CASE
+                    WHEN %s IN (
+                        'PROCESSED',
+                        'IGNORED',
+                        'REJECTED',
+                        'ERROR'
+                    )
+                    THEN CURRENT_TIMESTAMP
+                    ELSE NULL
+                END
+            )
+            RETURNING event_id
+            ''',
+            (
+                event_fingerprint,
+                duplicate_of_event_id,
+                dink_account_hash,
+                player_name,
+                player_id,
+                event_type,
+                json.dumps(raw_payload),
+                screenshot_path,
+                screenshot_sha256,
+                status,
+                status
+            )
+        )
+        event_id = cursor.fetchone()[0]
+        conn.commit()
+        return event_id
+
+def update_dink_event_screenshot(
+    event_id,
+    screenshot_path,
+    screenshot_sha256
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE dink_events
+            SET
+                screenshot_path = %s,
+                screenshot_sha256 = %s
+            WHERE event_id = %s
+            ''',
+            (
+                screenshot_path,
+                screenshot_sha256,
+                event_id
+            )
+        )
+
+        if cursor.rowcount != 1:
+            raise ValueError(
+                f"Dink event {event_id} was not found"
+            )
+
+        conn.commit()
+
+def minimise_ignored_dink_event(event_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT screenshot_path
+            FROM dink_events
+            WHERE event_id = %s
+              AND status = 'IGNORED'
+            FOR UPDATE
+            """,
+            (event_id,)
+        )
+
+        row = cursor.fetchone()
+
+        if row is None:
+            return None
+
+        screenshot_path = row[0]
+
+        cursor.execute(
+            """
+            UPDATE dink_events
+            SET raw_payload = '{}'::jsonb
+            WHERE event_id = %s
+              AND status = 'IGNORED'
+            """,
+            (event_id,)
+        )
+
+        conn.commit()
+
+        return screenshot_path
+
+
+def clear_dink_event_screenshot_path(event_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            UPDATE dink_events
+            SET screenshot_path = NULL
+            WHERE event_id = %s
+              AND status = 'IGNORED'
+            """,
+            (event_id,)
+        )
+
+        conn.commit()
+
+def _update_dink_event_identity(
+    cursor,
+    event_id,
+    player_id,
+    status
+):
+    cursor.execute(
+        '''
+        UPDATE dink_events
+        SET
+            player_id = %s,
+            status = %s,
+            processed_at = CASE
+                WHEN %s IN (
+                    'PROCESSED',
+                    'IGNORED',
+                    'REJECTED',
+                    'ERROR'
+                )
+                THEN CURRENT_TIMESTAMP
+                ELSE processed_at
+            END
+        WHERE event_id = %s
+        ''',
+        (
+            player_id,
+            status,
+            status,
+            event_id
+        )
+    )
+
+    if cursor.rowcount != 1:
+        raise ValueError(
+            f"Dink event {event_id} was not found"
+        )
+
+
+def update_dink_event_identity(
+    event_id,
+    player_id,
+    status
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        _update_dink_event_identity(
+            cursor=cursor,
+            event_id=event_id,
+            player_id=player_id,
+            status=status
+        )
+
+        conn.commit()
+
+def get_pending_dink_events_by_hash(dink_account_hash):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                event_id,
+                event_type,
+                raw_payload,
+                received_at
+            FROM dink_events
+            WHERE dink_account_hash = %s
+              AND status = 'PENDING_IDENTITY'
+              AND duplicate_of_event_id IS NULL
+            ORDER BY
+                received_at,
+                event_id
+            ''',
+            (dink_account_hash,)
+        )
+
+        return cursor.fetchall()
+
+def _add_dink_event_progress(
+    cursor,
+    event_id,
+    trigger,
+    amount,
+    progress_results
+):
+    if not progress_results:
+        return 0
+
+    for result in progress_results:
+        cursor.execute(
+            '''
+            INSERT INTO dink_event_progress (
+                event_id,
+                condition_id,
+                tile_id,
+                completion_path,
+                trigger,
+                amount,
+                raw_progress,
+                route_progress,
+                credited,
+                banked_total,
+                ready,
+                completed
+            )
+            VALUES (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
+            ''',
+            (
+                event_id,
+                result["condition_id"],
+                result["tile_id"],
+                result["completion_path"],
+                trigger,
+                amount,
+                result["raw_progress"],
+                result["route_progress"],
+                result["credited"],
+                result["banked_total"],
+                result["ready"],
+                result["completed"]
+            )
+        )
+
+    return len(progress_results)
+
+
+def add_dink_event_progress(
+    event_id,
+    trigger,
+    amount,
+    progress_results
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        rows_stored = _add_dink_event_progress(
+            cursor=cursor,
+            event_id=event_id,
+            trigger=trigger,
+            amount=amount,
+            progress_results=progress_results
+        )
+
+        conn.commit()
+
+    return rows_stored
+
+def process_dink_event_progress(
+    event_id,
+    player_id,
+    event_progress
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                player_id,
+                status,
+                duplicate_of_event_id,
+                dink_account_hash
+            FROM dink_events
+            WHERE event_id = %s
+            FOR UPDATE
+            ''',
+            (event_id,)
+        )
+
+        event = cursor.fetchone()
+
+        if event is None:
+            raise ValueError(
+                f"Dink event {event_id} was not found."
+            )
+
+        (
+            stored_player_id,
+            status,
+            duplicate_of_event_id,
+            dink_account_hash
+        ) = event
+
+        if duplicate_of_event_id is not None:
+            raise ValueError(
+                f"Dink event {event_id} is a duplicate."
+            )
+
+        if status == 'RECEIVED':
+            if stored_player_id != player_id:
+                raise ValueError(
+                    f"Dink event {event_id} is not linked "
+                    f"to player {player_id}."
+                )
+
+        elif status == 'PENDING_IDENTITY':
+            cursor.execute(
+                '''
+                SELECT
+                    player_id,
+                    status
+                FROM dink_identities
+                WHERE dink_account_hash = %s
+                FOR SHARE
+                ''',
+                (dink_account_hash,)
+            )
+
+            identity = cursor.fetchone()
+
+            if (
+                identity is None
+                or identity[1] != 'LINKED'
+                or identity[0] != player_id
+            ):
+                raise ValueError(
+                    f"Dink event {event_id} does not have "
+                    f"a linked identity for player {player_id}."
+                )
+
+        else:
+            raise ValueError(
+                f"Dink event {event_id} cannot be processed "
+                f"from status {status}."
+            )
+
+        all_results = []
+
+        for progress_item in event_progress:
+            condition_type = progress_item["condition_type"]
+            trigger = progress_item["trigger"]
+            amount = progress_item.get("amount", 1)
+
+            results = _apply_event_condition_progress(
+                cursor=cursor,
+                player_id=player_id,
+                condition_type=condition_type,
+                trigger=trigger,
+                amount=amount
+            )
+
+            _add_dink_event_progress(
+                cursor=cursor,
+                event_id=event_id,
+                trigger=trigger,
+                amount=amount,
+                progress_results=results
+            )
+
+            all_results.extend(results)
+
+        final_status = (
+            'PROCESSED'
+            if all_results
+            else 'IGNORED'
+        )
+
+        _update_dink_event_identity(
+            cursor=cursor,
+            event_id=event_id,
+            player_id=player_id,
+            status=final_status
+        )
+
+        conn.commit()
+
+        return {
+            "status": final_status,
+            "progress": all_results
+        }
 
 # Functions for 'drops' table
 def add_drop(team_id, player_id, player_name, drop_name, drop_value, drop_quantity, drop_source):
@@ -2592,7 +3483,8 @@ def evaluate_completion_path(
             completion_path=completion_path
         )
 
-def apply_event_condition_progress(
+def _apply_event_condition_progress(
+    cursor,
     player_id,
     condition_type,
     trigger,
@@ -2627,161 +3519,178 @@ def apply_event_condition_progress(
             "Event progress must be greater than 0."
         )
 
-    with connect() as conn:
-        cursor = conn.cursor()
+    cursor.execute(
+        '''
+        SELECT team_id
+        FROM players
+        WHERE player_id = %s
+        FOR UPDATE
+        ''',
+        (player_id,)
+    )
 
-        cursor.execute(
-            '''
-            SELECT team_id
-            FROM players
-            WHERE player_id = %s
-            FOR UPDATE
-            ''',
-            (player_id,)
+    player_row = cursor.fetchone()
+
+    if player_row is None:
+        raise ValueError(
+            f"Player {player_id} does not exist."
         )
 
-        player_row = cursor.fetchone()
+    team_id = player_row[0]
 
-        if player_row is None:
-            raise ValueError(
-                f"Player {player_id} does not exist."
-            )
-
-        team_id = player_row[0]
-
-        if team_id is None:
-            raise ValueError(
-                f"Player {player_id} is not on a team."
-            )
-
-        cursor.execute(
-            '''
-            SELECT
-                condition_id,
-                tile_id,
-                completion_path
-            FROM tile_conditions
-            WHERE condition_type = %s
-              AND lower(condition_trigger) = lower(%s)
-            ORDER BY
-                tile_id,
-                completion_path,
-                condition_id
-            ''',
-            (
-                condition_type,
-                trigger
-            )
+    if team_id is None:
+        raise ValueError(
+            f"Player {player_id} is not on a team."
         )
 
-        conditions = cursor.fetchall()
-
-        results = []
-
-        for (
+    cursor.execute(
+        '''
+        SELECT
             condition_id,
             tile_id,
             completion_path
-        ) in conditions:
-            # Serialise all progress against this tile so two
-            # simultaneous events cannot both claim the same
-            # remaining contribution.
-            cursor.execute(
-                '''
-                SELECT tile_id
-                FROM tiles
-                WHERE tile_id = %s
-                FOR UPDATE
-                ''',
-                (tile_id,)
+        FROM tile_conditions
+        WHERE condition_type = %s
+          AND lower(condition_trigger) = lower(%s)
+        ORDER BY
+            tile_id,
+            completion_path,
+            condition_id
+        ''',
+        (
+            condition_type,
+            trigger
+        )
+    )
+
+    conditions = cursor.fetchall()
+
+    results = []
+
+    for (
+        condition_id,
+        tile_id,
+        completion_path
+    ) in conditions:
+        # Serialise all progress against this tile so two
+        # simultaneous events cannot both claim the same
+        # remaining contribution.
+        cursor.execute(
+            '''
+            SELECT tile_id
+            FROM tiles
+            WHERE tile_id = %s
+            FOR UPDATE
+            ''',
+            (tile_id,)
+        )
+
+        if cursor.fetchone() is None:
+            continue
+
+        cursor.execute(
+            '''
+            SELECT 1
+            FROM completed_tiles
+            WHERE team_id = %s
+              AND tile_id = %s
+            ''',
+            (
+                team_id,
+                tile_id
             )
+        )
 
-            if cursor.fetchone() is None:
-                continue
+        if cursor.fetchone() is not None:
+            continue
 
-            cursor.execute(
-                '''
-                SELECT 1
-                FROM completed_tiles
-                WHERE team_id = %s
-                  AND tile_id = %s
-                ''',
-                (
-                    team_id,
-                    tile_id
-                )
-            )
+        before = _evaluate_completion_path(
+            cursor=cursor,
+            team_id=team_id,
+            tile_id=tile_id,
+            completion_path=completion_path
+        )
 
-            if cursor.fetchone() is not None:
-                continue
+        raw_progress = _add_tile_condition_progress(
+            cursor=cursor,
+            team_id=team_id,
+            condition_id=condition_id,
+            amount=amount
+        )
 
-            before = _evaluate_completion_path(
+        after = _evaluate_completion_path(
+            cursor=cursor,
+            team_id=team_id,
+            tile_id=tile_id,
+            completion_path=completion_path
+        )
+
+        progress_delta = round(
+            max(
+                0.0,
+                after["progress_fraction"]
+                - before["progress_fraction"]
+            ),
+            12
+        )
+
+        contribution, banked_after = (
+            _bank_partial_contribution(
                 cursor=cursor,
+                player_id=player_id,
                 team_id=team_id,
                 tile_id=tile_id,
-                completion_path=completion_path
+                requested_contribution=progress_delta
             )
+        )
 
-            raw_progress = _add_tile_condition_progress(
-                cursor=cursor,
-                team_id=team_id,
-                condition_id=condition_id,
-                amount=amount
-            )
+        completed = False
 
-            after = _evaluate_completion_path(
-                cursor=cursor,
-                team_id=team_id,
-                tile_id=tile_id,
-                completion_path=completion_path
-            )
-
-            progress_delta = round(
-                max(
-                    0.0,
-                    after["progress_fraction"]
-                    - before["progress_fraction"]
-                ),
-                12
-            )
-
-            contribution, banked_after = (
-                _bank_partial_contribution(
+        # Tile readiness is determined by an actual completion
+        # path, never merely by total banked contribution.
+        if after["ready"]:
+            completed = (
+                _complete_tile_with_contributions(
                     cursor=cursor,
-                    player_id=player_id,
                     team_id=team_id,
-                    tile_id=tile_id,
-                    requested_contribution=progress_delta
+                    tile_id=tile_id
                 )
             )
 
-            completed = False
+        results.append(
+            {
+                "condition_id": condition_id,
+                "tile_id": tile_id,
+                "completion_path": completion_path,
+                "raw_progress": raw_progress,
+                "route_progress":
+                    after["progress_fraction"],
+                "credited": contribution,
+                "banked_total": banked_after,
+                "ready": after["ready"],
+                "completed": completed
+            }
+        )
 
-            # Tile readiness is determined by an actual completion
-            # path, never merely by total banked contribution.
-            if after["ready"]:
-                completed = (
-                    _complete_tile_with_contributions(
-                        cursor=cursor,
-                        team_id=team_id,
-                        tile_id=tile_id
-                    )
-                )
+    return results
 
-            results.append(
-                {
-                    "condition_id": condition_id,
-                    "tile_id": tile_id,
-                    "completion_path": completion_path,
-                    "raw_progress": raw_progress,
-                    "route_progress":
-                        after["progress_fraction"],
-                    "credited": contribution,
-                    "banked_total": banked_after,
-                    "ready": after["ready"],
-                    "completed": completed
-                }
-            )
+
+def apply_event_condition_progress(
+    player_id,
+    condition_type,
+    trigger,
+    amount=1
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        results = _apply_event_condition_progress(
+            cursor=cursor,
+            player_id=player_id,
+            condition_type=condition_type,
+            trigger=trigger,
+            amount=amount
+        )
 
         conn.commit()
 
@@ -3517,6 +4426,99 @@ def reset_tables():
             ''')
 
     cursor.execute('''
+        CREATE TABLE dink_identities (
+            dink_account_hash TEXT PRIMARY KEY,
+            player_id INTEGER,
+            observed_rsn TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            first_seen TIMESTAMPTZ NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMPTZ NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+            linked_at TIMESTAMPTZ,
+            FOREIGN KEY (player_id)
+                REFERENCES players(player_id)
+                ON DELETE SET NULL,
+            CHECK (
+                status IN (
+                    'PENDING',
+                    'LINKED',
+                    'CONFLICT'
+                )
+            ),
+            CHECK (
+                (
+                    status = 'LINKED'
+                    AND player_id IS NOT NULL
+                    AND linked_at IS NOT NULL
+                )
+                OR status != 'LINKED'
+            )
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE UNIQUE INDEX
+            idx_dink_identities_linked_player
+        ON dink_identities (player_id)
+        WHERE
+            status = 'LINKED'
+            AND player_id IS NOT NULL
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE dink_events (
+            event_id BIGSERIAL PRIMARY KEY,
+            event_fingerprint TEXT NOT NULL,
+            duplicate_of_event_id BIGINT,
+            dink_account_hash TEXT,
+            player_name TEXT,
+            player_id INTEGER,
+            event_type TEXT,
+            raw_payload JSONB NOT NULL,
+            screenshot_path TEXT,
+            screenshot_sha256 TEXT,
+            status TEXT NOT NULL DEFAULT 'RECEIVED',
+            received_at TIMESTAMPTZ NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+            processed_at TIMESTAMPTZ,
+            FOREIGN KEY (duplicate_of_event_id)
+                REFERENCES dink_events(event_id)
+                ON DELETE SET NULL,
+            FOREIGN KEY (player_id)
+                REFERENCES players(player_id)
+                ON DELETE SET NULL,
+            CHECK (
+                status IN (
+                    'RECEIVED',
+                    'PENDING_IDENTITY',
+                    'PROCESSED',
+                    'IGNORED',
+                    'REJECTED',
+                    'ERROR'
+                )
+            )
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE INDEX idx_dink_events_fingerprint
+        ON dink_events (
+            event_fingerprint,
+            received_at
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE INDEX idx_dink_events_identity
+        ON dink_events (
+            dink_account_hash,
+            player_name,
+            received_at
+        )
+    ''')
+
+    cursor.execute('''
             CREATE TABLE wom_metric_state (
                 competition_id BIGINT NOT NULL,
                 player_id INTEGER NOT NULL,
@@ -3658,6 +4660,41 @@ def reset_tables():
                 CHECK (progress >= 0)
             )
         ''')
+
+    cursor.execute('''
+        CREATE TABLE dink_event_progress (
+            progress_id BIGSERIAL PRIMARY KEY,
+            event_id BIGINT NOT NULL,
+            condition_id INTEGER NOT NULL,
+            tile_id INTEGER NOT NULL,
+            completion_path INTEGER NOT NULL,
+            trigger TEXT NOT NULL,
+            amount BIGINT NOT NULL,
+            raw_progress BIGINT NOT NULL,
+            route_progress NUMERIC(18, 12) NOT NULL,
+            credited NUMERIC(18, 12) NOT NULL,
+            banked_total NUMERIC(18, 12) NOT NULL,
+            ready BOOLEAN NOT NULL,
+            completed BOOLEAN NOT NULL,
+            processed_at TIMESTAMPTZ NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (event_id)
+                REFERENCES dink_events(event_id)
+                ON DELETE CASCADE,
+            FOREIGN KEY (condition_id)
+                REFERENCES tile_conditions(condition_id)
+                ON DELETE CASCADE,
+            FOREIGN KEY (tile_id)
+                REFERENCES tiles(tile_id)
+                ON DELETE CASCADE,
+            CHECK (amount > 0)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE INDEX idx_dink_event_progress_event
+        ON dink_event_progress (event_id)
+    ''')
 
     cursor.execute('''
             CREATE TABLE drop_whitelist (
