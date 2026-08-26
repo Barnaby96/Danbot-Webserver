@@ -541,7 +541,7 @@ def parse_loot(data, img_file) -> dict[str, list[str]]:
             # Drop tile logic
             if tile.tile_type == "DROP":
                 # If the tile has been completed too many times do nothing
-                if tile_completion_count >= tile.tile_repetition:
+                if tile_completion_count >= 1:
                     continue
 
                 database.add_relevant_drop(team.team_id, player.player_id, tile.tile_id, tile.tile_name, itemName, player.player_name, drop_pk)
@@ -587,12 +587,15 @@ def parse_loot(data, img_file) -> dict[str, list[str]]:
                                                                                                       tile.tile_id):
                         partial_completion = db_entities.PartialCompletion(partial_completion)
                         database.remove_partial_completion(partial_completion.partial_completion_pk)
-                        database.add_player_tile_completions(partial_completion.player_id,
-                                                             min(partial_completion.partial_completion, 1 - current_trigger_rewards))
-                        if round(partial_completion.partial_completion,2) > round(1 - current_trigger_rewards, 2) and tile_completion_count + 1 < tile.tile_repetition:
-                            database.add_player_partial_completions(player.player_id, team.team_id, tile.tile_id, partial_completion.partial_completion - (1 - current_trigger_rewards))
-                        else:
-                            current_trigger_rewards += partial_completion.partial_completion
+                        credited_completion = min(
+                            partial_completion.partial_completion,
+                            1 - current_trigger_rewards
+                        )
+                        database.add_player_tile_completions(
+                            partial_completion.player_id,
+                            credited_completion
+                        )
+                        current_trigger_rewards += credited_completion
                 # Otherwise this drop only progressed the tile and didn't complete it
                 else:
                     description = f"{tile.tile_name} is {trigger_value % tile.tile_triggers_required} / {tile.tile_triggers_required} from being completed!"
@@ -721,7 +724,7 @@ def parse_kill_count(data, img_file) -> dict[str, list[str]]:
         team = Team(database.get_team_by_id(team_id))
         tile_completion_count = len(database.get_completed_tiles_by_team_id_and_tile_id(team_id, tile.tile_id))
 
-        if tile_completion_count >= tile.tile_repetition:
+        if tile_completion_count >= 1:
             return True
 
         killcount_weights = defaultdict(int)
@@ -758,12 +761,11 @@ def parse_kill_count(data, img_file) -> dict[str, list[str]]:
                 database.add_player_tile_completions(partial_completion.player_id,
                                                      min(partial_completion.partial_completion,
                                                          1 - current_trigger_rewards))
-                if round(partial_completion.partial_completion, 2) > round(1 - current_trigger_rewards,
-                                                                           2) and tile_completion_count + 1 < tile.tile_repetition:
-                    database.add_player_partial_completions(player.player_id, team.team_id, tile.tile_id,
-                                                            partial_completion.partial_completion - (1 - current_trigger_rewards))
-                else:
-                    current_trigger_rewards += partial_completion.partial_completion
+                credited_completion = min(
+                    partial_completion.partial_completion,
+                    1 - current_trigger_rewards
+                )
+                current_trigger_rewards += credited_completion
         elif boss_name.lower() == "TzTok-Jad".lower() or boss_name.lower() == "TzTok-Zuk".lower() or boss_name.lower() == "Sol-Heredit".lower():
             send_webhook(team.team_webhook, f"{player.player_name} killed {boss_name}! You are {(team_killcount % tile.tile_triggers_required)}/{tile.tile_triggers_required} from completing {tile.tile_name}",
                          description="", color=16776960, image=img_file)
@@ -817,7 +819,7 @@ def parse_pet(data, img_file) -> dict[str, list[str]]:
     if len(pet_tile) > 0:
         pet_tile = db_entities.Tile(pet_tile[0])
         tile_completion_count = len(database.get_completed_tiles_by_team_id_and_tile_id(team.team_id, pet_tile.tile_id))
-        if pet in [trigger.strip() for trigger in pet_tile.tile_triggers.split(',')] or (tile_completion_count >= pet_tile.tile_repetition and pet_tile.tile_repetition > 0):
+        if pet in [trigger.strip() for trigger in pet_tile.tile_triggers.split(',')] or tile_completion_count >= 1:
             send_webhook(team.team_webhook, f"{player.player_name} is being followed by {pet}!", description="Too bad its not worth any points....", color=16776960, image=img_file)
         else:
             database.add_player_tile_completions(player.player_id, 1)
@@ -918,9 +920,14 @@ def parse_chat(data, img_file):
         return False
     team = db_entities.Team(team)
 
-    tile_completions = len(database.get_completed_tiles_by_team_id_and_tile_id(team.team_id, tile.tile_id))
+    tile_completions = len(
+        database.get_completed_tiles_by_team_id_and_tile_id(
+            team.team_id,
+            tile.tile_id
+        )
+    )
 
-    if tile_completions >= tile.tile_repetition:
+    if tile_completions >= 1:
         return False
 
     database.add_chats(player.player_id, team.team_id, tile.tile_id, chat_text)
@@ -936,7 +943,15 @@ def parse_chat(data, img_file):
             database.remove_partial_completion(partial_completion.partial_completion_pk)
             database.add_player_tile_completions(partial_completion.player_id, partial_completion.partial_completion)
             if chat_text == "You are victorious!":
-                database.add_relevant_drop(team.team_id, player.player_id, tile.tile_id, tile.tile_name, "LMS Win", player.player_name)
+                database.add_relevant_drop(
+                    team.team_id,
+                    player.player_id,
+                    tile.tile_id,
+                    tile.tile_name,
+                    "LMS Win",
+                    player.player_name,
+                    None
+                )
     else:
         send_webhook(team.team_webhook, title=f"{tile.tile_name} progress!", description=f"Thanks to {player.player_name}, you are {total_chats % tile.tile_triggers_required}/{tile.tile_triggers_required} from completing this tile", color=16776960, image=img_file )
 

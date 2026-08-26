@@ -38,7 +38,7 @@ def test_case_insensitivity(client):
 
     partial_danbis = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(1 / 9, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(1 / 9, 2)
 
 
 def test_inferno_fire_cape(client):
@@ -54,7 +54,7 @@ def test_inferno_fire_cape(client):
 
     partial_danbis = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(1 / 9, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(1 / 9, 2)
     # player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
     # assert round(player_danbis.tiles_completed, 2) == round(1/9, 2)
 
@@ -66,7 +66,7 @@ def test_inferno_fire_cape(client):
     # assert round(player_danbis.tiles_completed, 2) == round(4/9, 2)
     partial_danbis = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(4 / 9, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(4 / 9, 2)
 
 
 def test_inferno_fire_over_partials_cape(client):
@@ -82,7 +82,7 @@ def test_inferno_fire_over_partials_cape(client):
 
     partial_danbis = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(1 / 9, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(1 / 9, 2)
     # player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
     # assert round(player_danbis.tiles_completed, 2) == round(1/9, 2)
 
@@ -94,7 +94,7 @@ def test_inferno_fire_over_partials_cape(client):
     # assert round(player_danbis.tiles_completed, 2) == round(4/9, 2)
     partial_danbis = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(4 / 9, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(4 / 9, 2)
 
     json_data = spoof_kc.kc_spoof_json("Deidera", "TzTok-Zuk")
     result = dink.parse_kill_count(json_data, None)
@@ -104,7 +104,7 @@ def test_inferno_fire_over_partials_cape(client):
     # assert round(player_danbis.tiles_completed, 2) == round(4/9, 2)
     partial_deidera = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_deidera.player_id)[0])
-    assert round(partial_deidera.partial_completion, 2) == round(3 / 9, 2)
+    assert round(float(partial_deidera.partial_completion), 2) == round(3 / 9, 2)
 
     json_data = spoof_kc.kc_spoof_json("Deidera", "TzTok-Zuk")
     result = dink.parse_kill_count(json_data, None)
@@ -114,9 +114,11 @@ def test_inferno_fire_over_partials_cape(client):
     player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
 
     assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
-    partial_deidera = db_entities.PartialCompletion(
-        database.get_partial_completions_by_player_id(player_deidera.player_id)[0])
-    assert round(partial_deidera.partial_completion, 2) == round(1 / 9, 2)
+    assert len(
+        database.get_partial_completions_by_player_id(
+            player_deidera.player_id
+        )
+    ) == 0
 
     assert round(player_deidera.tiles_completed, 2) == round(5 / 9, 2)
     assert round(player_danbis.tiles_completed, 2) == round(4 / 9, 2)
@@ -138,7 +140,7 @@ def test_inferno_fire_cape_completion(client):
 
     partial_danbis = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(1 / 9, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(1 / 9, 2)
 
     json_data = spoof_kc.kc_spoof_json("Danbis", "TzTok-Zuk")
     result = dink.parse_kill_count(json_data, None)
@@ -146,7 +148,7 @@ def test_inferno_fire_cape_completion(client):
 
     partial_danbis = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(4 / 9, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(4 / 9, 2)
 
     json_data = spoof_kc.kc_spoof_json("Danbis", "TzTok-Zuk")
     result = dink.parse_kill_count(json_data, None)
@@ -154,7 +156,7 @@ def test_inferno_fire_cape_completion(client):
 
     partial_danbis = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(7 / 9, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(7 / 9, 2)
 
     json_data = spoof_kc.kc_spoof_json("Danbis", "TzTok-Jad")
     result = dink.parse_kill_count(json_data, None)
@@ -162,7 +164,7 @@ def test_inferno_fire_cape_completion(client):
 
     partial_danbis = db_entities.PartialCompletion(
         database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(8 / 9, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(8 / 9, 2)
 
     json_data = spoof_kc.kc_spoof_json("Danbis", "TzTok-Jad")
     result = dink.parse_kill_count(json_data, None)
@@ -193,7 +195,7 @@ def test_single_player_kc_completion(client):
         if i < 9:
             partial_danbis = db_entities.PartialCompletion(
                 database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-            assert round(partial_danbis.partial_completion, 2) == round((i + 1) / 10, 2)
+            assert round(float(partial_danbis.partial_completion), 2) == round((i + 1) / 10, 2)
         else:
             assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
 
@@ -222,7 +224,7 @@ def test_multiplayer_kc_completion(client):
 
         partial_danbis = db_entities.PartialCompletion(
             database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-        assert round(partial_danbis.partial_completion, 2) == round((i + 1) / 10, 2)
+        assert round(float(partial_danbis.partial_completion), 2) == round((i + 1) / 10, 2)
 
     for i in range(6):
         team = db_entities.Team(database.get_team_by_id(1))
@@ -235,7 +237,7 @@ def test_multiplayer_kc_completion(client):
         if i < 5:
             partial_deidera = db_entities.PartialCompletion(
                 database.get_partial_completions_by_player_id(player_deidera.player_id)[0])
-            assert round(partial_deidera.partial_completion, 2) == round((i + 1) / 10, 2)
+            assert round(float(partial_deidera.partial_completion), 2) == round((i + 1) / 10, 2)
         else:
             assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
             assert len(database.get_partial_completions_by_player_id(player_deidera.player_id)) == 0
@@ -249,48 +251,96 @@ def test_multiple_completions(client):
     database.read_teams('test_csvs/default_team_1.csv')
     database.read_tiles('test_csvs/default_tiles_3.csv')
 
-    player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
+    player_danbis = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
+
+    # The first 10 kills should complete the tile once.
     for i in range(10):
-        team = db_entities.Team(database.get_team_by_id(1))
+        team = db_entities.Team(
+            database.get_team_by_id(1)
+        )
         assert team.team_points == 0
 
-        json_data = spoof_kc.kc_spoof_json("Danbis", "Vardorvis")
-        result = dink.parse_kill_count(json_data, None)
-        assert result == True
+        json_data = spoof_kc.kc_spoof_json(
+            "Danbis",
+            "Vardorvis"
+        )
+        result = dink.parse_kill_count(
+            json_data,
+            None
+        )
+        assert result is True
 
         if i < 9:
             partial_danbis = db_entities.PartialCompletion(
-                database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-            assert round(partial_danbis.partial_completion, 2) == round((i + 1) / 10, 2)
+                database.get_partial_completions_by_player_id(
+                    player_danbis.player_id
+                )[0]
+            )
+            assert round(
+                float(partial_danbis.partial_completion),
+                2
+            ) == round((i + 1) / 10, 2)
         else:
-            assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
+            assert (
+                database.get_partial_completions_by_player_id(
+                    player_danbis.player_id
+                )
+                == []
+            )
 
-    team = db_entities.Team(database.get_team_by_id(1))
+    team = db_entities.Team(
+        database.get_team_by_id(1)
+    )
     assert team.team_points == 1
 
-    player_danbis = db_entities.Player(database.get_player_by_id(player_danbis.player_id))
+    player_danbis = db_entities.Player(
+        database.get_player_by_id(
+            player_danbis.player_id
+        )
+    )
     assert round(player_danbis.tiles_completed, 2) == 1
 
-    for i in range(10):
-        team = db_entities.Team(database.get_team_by_id(1))
+    # Further kills are still accepted but cannot score
+    # or begin progress towards another completion.
+    for _ in range(10):
+        json_data = spoof_kc.kc_spoof_json(
+            "Danbis",
+            "Vardorvis"
+        )
+        result = dink.parse_kill_count(
+            json_data,
+            None
+        )
+        assert result is True
+
+        assert (
+            database.get_partial_completions_by_player_id(
+                player_danbis.player_id
+            )
+            == []
+        )
+
+        team = db_entities.Team(
+            database.get_team_by_id(1)
+        )
         assert team.team_points == 1
 
-        json_data = spoof_kc.kc_spoof_json("Danbis", "Vardorvis")
-        result = dink.parse_kill_count(json_data, None)
-        assert result == True
+    player_danbis = db_entities.Player(
+        database.get_player_by_id(
+            player_danbis.player_id
+        )
+    )
+    assert round(player_danbis.tiles_completed, 2) == 1
 
-        if i < 9:
-            partial_danbis = db_entities.PartialCompletion(
-                database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-            assert round(partial_danbis.partial_completion, 2) == round((i + 1) / 10, 2)
-        else:
-            assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
-
-    team = db_entities.Team(database.get_team_by_id(1))
-    assert team.team_points == 2
-
-    player_danbis = db_entities.Player(database.get_player_by_id(player_danbis.player_id))
-    assert round(player_danbis.tiles_completed, 2) == 2
+    completed_tiles = (
+        database.get_completed_tiles_by_team_id_and_tile_id(
+            1,
+            4
+        )
+    )
+    assert len(completed_tiles) == 1
 
 
 def test_multiple_completions_multiple_players(client):
@@ -298,83 +348,155 @@ def test_multiple_completions_multiple_players(client):
     database.read_teams('test_csvs/default_team_1.csv')
     database.read_tiles('test_csvs/default_tiles_3.csv')
 
-    player_deidera = db_entities.Player(database.get_player_by_name("Deidera"))
-    player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
+    player_deidera = db_entities.Player(
+        database.get_player_by_name("Deidera")
+    )
+    player_danbis = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
+
+    # Danbis contributes 6 of the 10 kills required.
     for i in range(6):
-        team = db_entities.Team(database.get_team_by_id(1))
+        team = db_entities.Team(
+            database.get_team_by_id(1)
+        )
         assert team.team_points == 0
 
-        json_data = spoof_kc.kc_spoof_json("Danbis", "Vardorvis")
-        result = dink.parse_kill_count(json_data, None)
-        assert result == True
+        json_data = spoof_kc.kc_spoof_json(
+            "Danbis",
+            "Vardorvis"
+        )
+        result = dink.parse_kill_count(
+            json_data,
+            None
+        )
+        assert result is True
 
         partial_danbis = db_entities.PartialCompletion(
-            database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-        assert round(partial_danbis.partial_completion, 2) == round((i + 1) / 10, 2)
+            database.get_partial_completions_by_player_id(
+                player_danbis.player_id
+            )[0]
+        )
+        assert round(
+            float(partial_danbis.partial_completion),
+            2
+        ) == round((i + 1) / 10, 2)
 
+    # Deidera contributes the remaining 4 kills.
     for i in range(4):
-        team = db_entities.Team(database.get_team_by_id(1))
+        team = db_entities.Team(
+            database.get_team_by_id(1)
+        )
         assert team.team_points == 0
 
-        json_data = spoof_kc.kc_spoof_json("Deidera", "Vardorvis")
-        result = dink.parse_kill_count(json_data, None)
-        assert result == True
+        json_data = spoof_kc.kc_spoof_json(
+            "Deidera",
+            "Vardorvis"
+        )
+        result = dink.parse_kill_count(
+            json_data,
+            None
+        )
+        assert result is True
 
         if i < 3:
             partial_deidera = db_entities.PartialCompletion(
-                database.get_partial_completions_by_player_id(player_deidera.player_id)[0])
-            assert round(partial_deidera.partial_completion, 2) == round((i + 1) / 10, 2)
+                database.get_partial_completions_by_player_id(
+                    player_deidera.player_id
+                )[0]
+            )
+            assert round(
+                float(partial_deidera.partial_completion),
+                2
+            ) == round((i + 1) / 10, 2)
         else:
-            assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
-            assert len(database.get_partial_completions_by_player_id(player_deidera.player_id)) == 0
+            assert (
+                database.get_partial_completions_by_player_id(
+                    player_danbis.player_id
+                )
+                == []
+            )
+            assert (
+                database.get_partial_completions_by_player_id(
+                    player_deidera.player_id
+                )
+                == []
+            )
 
-    team = db_entities.Team(database.get_team_by_id(1))
+    team = db_entities.Team(
+        database.get_team_by_id(1)
+    )
     assert team.team_points == 1
 
-    player_deidera = db_entities.Player(database.get_player_by_name("Deidera"))
-    player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
+    player_deidera = db_entities.Player(
+        database.get_player_by_name("Deidera")
+    )
+    player_danbis = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
 
     assert round(player_danbis.tiles_completed, 2) == 0.6
     assert round(player_deidera.tiles_completed, 2) == 0.4
-    assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
-    assert len(database.get_partial_completions_by_player_id(player_deidera.player_id)) == 0
 
-    for i in range(4):
-        team = db_entities.Team(database.get_team_by_id(1))
-        assert team.team_points == 1
+    # Further kills from either player are accepted as KC events,
+    # but cannot start a second completion of the same tile.
+    for _ in range(4):
+        json_data = spoof_kc.kc_spoof_json(
+            "Deidera",
+            "Vardorvis"
+        )
+        result = dink.parse_kill_count(
+            json_data,
+            None
+        )
+        assert result is True
 
-        json_data = spoof_kc.kc_spoof_json("Deidera", "Vardorvis")
-        result = dink.parse_kill_count(json_data, None)
-        assert result == True
+    for _ in range(6):
+        json_data = spoof_kc.kc_spoof_json(
+            "Danbis",
+            "Vardorvis"
+        )
+        result = dink.parse_kill_count(
+            json_data,
+            None
+        )
+        assert result is True
 
-        partial_deidera = db_entities.PartialCompletion(
-            database.get_partial_completions_by_player_id(player_deidera.player_id)[0])
-        assert round(partial_deidera.partial_completion, 2) == round((i + 1) / 10, 2)
+    assert (
+        database.get_partial_completions_by_player_id(
+            player_danbis.player_id
+        )
+        == []
+    )
+    assert (
+        database.get_partial_completions_by_player_id(
+            player_deidera.player_id
+        )
+        == []
+    )
 
-    for i in range(6):
-        team = db_entities.Team(database.get_team_by_id(1))
-        assert team.team_points == 1
+    team = db_entities.Team(
+        database.get_team_by_id(1)
+    )
+    assert team.team_points == 1
 
-        json_data = spoof_kc.kc_spoof_json("Danbis", "Vardorvis")
-        result = dink.parse_kill_count(json_data, None)
-        assert result == True
+    player_deidera = db_entities.Player(
+        database.get_player_by_name("Deidera")
+    )
+    player_danbis = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
 
-        if i < 5:
-            partial_danbis = db_entities.PartialCompletion(
-                database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-            assert round(partial_danbis.partial_completion, 2) == round((i + 1) / 10, 2)
-        else:
-            assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
-            assert len(database.get_partial_completions_by_player_id(player_deidera.player_id)) == 0
+    assert round(player_danbis.tiles_completed, 2) == 0.6
+    assert round(player_deidera.tiles_completed, 2) == 0.4
 
-    team = db_entities.Team(database.get_team_by_id(1))
-    assert team.team_points == 2
-
-    player_deidera = db_entities.Player(database.get_player_by_name("Deidera"))
-    player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
-
-    assert round(player_danbis.tiles_completed, 2) == 1.2
-    assert round(player_deidera.tiles_completed, 2) == 0.8
+    completed_tiles = (
+        database.get_completed_tiles_by_team_id_and_tile_id(
+            1,
+            4
+        )
+    )
+    assert len(completed_tiles) == 1
 
 
 def test_single_player_overcompletion(client):
@@ -382,29 +504,67 @@ def test_single_player_overcompletion(client):
     database.read_teams('test_csvs/default_team_1.csv')
     database.read_tiles('test_csvs/default_tiles_3.csv')
 
-    player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
+    player_danbis = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
+
     for i in range(1, 30):
-        json_data = spoof_kc.kc_spoof_json("Danbis", "Vardorvis")
-        result = dink.parse_kill_count(json_data, None)
-        assert result == True
+        json_data = spoof_kc.kc_spoof_json(
+            "Danbis",
+            "Vardorvis"
+        )
+        result = dink.parse_kill_count(
+            json_data,
+            None
+        )
+        assert result is True
 
-        if i % 10 == 0:
-            assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
-        elif i > 19:
-            player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
-            assert round(player_danbis.tiles_completed, 2) == 2
-            assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
-        else:
+        if i < 10:
             partial_danbis = db_entities.PartialCompletion(
-                database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-            assert round(partial_danbis.partial_completion, 2) == round(i / 10 - (i - (i % 10)) / 10, 2)
+                database.get_partial_completions_by_player_id(
+                    player_danbis.player_id
+                )[0]
+            )
+            assert round(
+                float(partial_danbis.partial_completion),
+                2
+            ) == round(i / 10, 2)
 
-    assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
-    player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
-    assert player_danbis.tiles_completed == 2
+        else:
+            assert (
+                database.get_partial_completions_by_player_id(
+                    player_danbis.player_id
+                )
+                == []
+            )
 
-    team = db_entities.Team(database.get_team_by_id(1))
-    assert team.team_points == 2
+            player_danbis = db_entities.Player(
+                database.get_player_by_name("Danbis")
+            )
+            assert player_danbis.tiles_completed == 1
+
+            team = db_entities.Team(
+                database.get_team_by_id(1)
+            )
+            assert team.team_points == 1
+
+    completed_tiles = (
+        database.get_completed_tiles_by_team_id_and_tile_id(
+            1,
+            4
+        )
+    )
+    assert len(completed_tiles) == 1
+
+    player_danbis = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
+    assert player_danbis.tiles_completed == 1
+
+    team = db_entities.Team(
+        database.get_team_by_id(1)
+    )
+    assert team.team_points == 1
 
 
 def test_multiplayer_overcompletion(client):
@@ -412,46 +572,101 @@ def test_multiplayer_overcompletion(client):
     database.read_teams('test_csvs/default_team_1.csv')
     database.read_tiles('test_csvs/default_tiles_3.csv')
 
-    player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
+    player_danbis = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
+
+    # Danbis completes the tile with his first 10 kills.
     for i in range(1, 16):
-        json_data = spoof_kc.kc_spoof_json("Danbis", "Vardorvis")
-        result = dink.parse_kill_count(json_data, None)
-        assert result == True
+        json_data = spoof_kc.kc_spoof_json(
+            "Danbis",
+            "Vardorvis"
+        )
+        result = dink.parse_kill_count(
+            json_data,
+            None
+        )
+        assert result is True
 
-        if i % 10 == 0:
-            assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
-        else:
+        if i < 10:
             partial_danbis = db_entities.PartialCompletion(
-                database.get_partial_completions_by_player_id(player_danbis.player_id)[0])
-            assert round(partial_danbis.partial_completion, 2) == round(i / 10 - (i - (i % 10)) / 10, 2)
+                database.get_partial_completions_by_player_id(
+                    player_danbis.player_id
+                )[0]
+            )
+            assert round(
+                float(partial_danbis.partial_completion),
+                2
+            ) == round(i / 10, 2)
 
-    team = db_entities.Team(database.get_team_by_id(1))
+        else:
+            assert (
+                database.get_partial_completions_by_player_id(
+                    player_danbis.player_id
+                )
+                == []
+            )
+
+    team = db_entities.Team(
+        database.get_team_by_id(1)
+    )
     assert team.team_points == 1
 
-    player_danbis = db_entities.Player(database.get_player_by_name("Danbis"))
+    player_danbis = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
     assert round(player_danbis.tiles_completed, 2) == 1
 
-    player_deidera = db_entities.Player(database.get_player_by_name("Deidera"))
-    for i in range(1, 15):
-        json_data = spoof_kc.kc_spoof_json("Deidera", "Vardorvis")
-        result = dink.parse_kill_count(json_data, None)
-        assert result == True
-        if i % 10 == 0:
-            assert len(database.get_partial_completions_by_player_id(player_deidera.player_id)) == 0
-        elif i > 4:
-            player_deidera = db_entities.Player(database.get_player_by_name("Deidera"))
-            assert round(player_deidera.tiles_completed, 2) == 0.5
-            assert len(database.get_partial_completions_by_player_id(player_deidera.player_id)) == 0
-        else:
-            partial_deidera = db_entities.PartialCompletion(
-                database.get_partial_completions_by_player_id(player_deidera.player_id)[0])
-            assert round(partial_deidera.partial_completion, 2) == round(i / 10 - (i - (i % 10)) / 10, 2)
+    # Another player's later kills are accepted as KC events,
+    # but cannot contribute to an already-completed tile.
+    player_deidera = db_entities.Player(
+        database.get_player_by_name("Deidera")
+    )
 
-    team = db_entities.Team(database.get_team_by_id(1))
-    assert team.team_points == 2
+    for _ in range(14):
+        json_data = spoof_kc.kc_spoof_json(
+            "Deidera",
+            "Vardorvis"
+        )
+        result = dink.parse_kill_count(
+            json_data,
+            None
+        )
+        assert result is True
 
-    assert len(database.get_partial_completions_by_player_id(player_danbis.player_id)) == 0
+        assert (
+            database.get_partial_completions_by_player_id(
+                player_deidera.player_id
+            )
+            == []
+        )
 
-    assert len(database.get_partial_completions_by_player_id(player_deidera.player_id)) == 0
-    player_deidera = db_entities.Player(database.get_player_by_name("Deidera"))
-    assert round(player_deidera.tiles_completed, 2) == 0.5
+    assert (
+        database.get_partial_completions_by_player_id(
+            player_danbis.player_id
+        )
+        == []
+    )
+
+    team = db_entities.Team(
+        database.get_team_by_id(1)
+    )
+    assert team.team_points == 1
+
+    player_danbis = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
+    player_deidera = db_entities.Player(
+        database.get_player_by_name("Deidera")
+    )
+
+    assert round(player_danbis.tiles_completed, 2) == 1
+    assert round(player_deidera.tiles_completed, 2) == 0
+
+    completed_tiles = (
+        database.get_completed_tiles_by_team_id_and_tile_id(
+            1,
+            4
+        )
+    )
+    assert len(completed_tiles) == 1

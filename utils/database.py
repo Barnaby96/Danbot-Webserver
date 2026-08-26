@@ -25,6 +25,16 @@ def ensure_schema():
         cursor = conn.cursor()
 
         cursor.execute('''
+            ALTER TABLE IF EXISTS relevant_drops
+            ALTER COLUMN drops_pk DROP NOT NULL
+        ''')
+
+        cursor.execute('''
+            ALTER TABLE IF EXISTS relevant_drops
+            ALTER COLUMN drops_pk DROP DEFAULT
+        ''')
+
+        cursor.execute('''
             ALTER TABLE players
             ADD COLUMN IF NOT EXISTS discord_user_id BIGINT
         ''')
@@ -1937,6 +1947,36 @@ def update_dink_event_screenshot(
 
         conn.commit()
 
+def get_dink_event_by_id(event_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                event_id,
+                event_fingerprint,
+                duplicate_of_event_id,
+                dink_account_hash,
+                player_name,
+                player_id,
+                event_type,
+                raw_payload,
+                screenshot_path,
+                screenshot_sha256,
+                status,
+                received_at,
+                processed_at
+            FROM dink_events
+            WHERE event_id = %s
+            ''',
+            (event_id,)
+        )
+
+        return cursor.fetchone()
+
+
+
 def minimise_ignored_dink_event(event_id):
     with connect() as conn:
         cursor = conn.cursor()
@@ -2150,6 +2190,36 @@ def add_dink_event_progress(
         conn.commit()
 
     return rows_stored
+
+def get_dink_event_progress_by_event_id(event_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                progress_id,
+                event_id,
+                condition_id,
+                tile_id,
+                completion_path,
+                trigger,
+                amount,
+                raw_progress,
+                route_progress,
+                credited,
+                banked_total,
+                ready,
+                completed,
+                processed_at
+            FROM dink_event_progress
+            WHERE event_id = %s
+            ORDER BY progress_id
+            ''',
+            (event_id,)
+        )
+
+        return cursor.fetchall()
 
 def process_dink_event_progress(
     event_id,
@@ -4790,7 +4860,7 @@ def reset_tables():
                 tile_name text,
                 drop_name text,
                 player_name text,
-                drops_pk SERIAL,
+                drops_pk INTEGER,
                 relevant_drops_pk SERIAL PRIMARY KEY,
                 FOREIGN KEY(drops_pk) REFERENCES  drops(drops_pk) ON DELETE CASCADE,
                 FOREIGN KEY(team_id) REFERENCES teams(team_id) ON DELETE CASCADE,

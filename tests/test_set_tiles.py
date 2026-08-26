@@ -37,7 +37,7 @@ def test_case_insensitivity(client):
     assert round(player.tiles_completed, 2) == 0
 
     partial_danbis = db_entities.PartialCompletion(database.get_partial_completions_by_player_id(player.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(1/3, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(1/3, 2)
 
     team = db_entities.Team(database.get_team_by_id(1))
     assert team.team_points == 0
@@ -56,7 +56,7 @@ def test_single_set_piece(client):
     assert round(player.tiles_completed, 2) == 0
 
     partial_danbis = db_entities.PartialCompletion(database.get_partial_completions_by_player_id(player.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(1/3, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(1/3, 2)
 
     team = db_entities.Team(database.get_team_by_id(1))
     assert team.team_points == 0
@@ -104,7 +104,7 @@ def test_cross_team_completion_failure(client):
 
     player = db_entities.Player(database.get_player_by_name("Danbis"))
     partial_danbis = db_entities.PartialCompletion(database.get_partial_completions_by_player_id(player.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(2/3, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(2/3, 2)
 
     team = db_entities.Team(database.get_team_by_id(1))
     assert team.team_points == 0
@@ -171,7 +171,7 @@ def test_mix_and_match_completion(client):
     player = db_entities.Player(database.get_player_by_name("Danbis"))
     assert player.tiles_completed == 0
     partial_danbis = db_entities.PartialCompletion(database.get_partial_completions_by_player_id(player.player_id)[0])
-    assert round(partial_danbis.partial_completion, 2) == round(1, 2)
+    assert round(float(partial_danbis.partial_completion), 2) == round(1, 2)
 
     team = db_entities.Team(database.get_team_by_id(1))
     assert team.team_points == 0

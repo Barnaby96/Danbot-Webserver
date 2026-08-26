@@ -135,61 +135,110 @@ def test_pet_tile_input_repetition(client):
     database.read_teams('test_csvs/default_team_1.csv')
     database.read_tiles('test_csvs/default_tiles_pet_repetition')
 
-    json_data = spoof_pet("Danbis", "Skotizo")
-    result = dink.parse_pet(json_data, None)
-    assert result == True
+    # Skotizo is excluded by the PET tile trigger.
+    json_data = spoof_pet(
+        "Danbis",
+        "Skotizo"
+    )
+    result = dink.parse_pet(
+        json_data,
+        None
+    )
+    assert result is True
 
-    team = database.get_team_by_id(1)
-    team = db_entities.Team(team)
-    assert round(team.team_points, 2) == round(0, 2)
+    team = db_entities.Team(
+        database.get_team_by_id(1)
+    )
+    assert round(team.team_points, 2) == 0
 
-    json_data = spoof_pet("Danbis", "Lil-zuk")
-    result = dink.parse_pet(json_data, None)
-    assert result == True
+    # The first valid pet completes the tile.
+    json_data = spoof_pet(
+        "Danbis",
+        "Lil-zuk"
+    )
+    result = dink.parse_pet(
+        json_data,
+        None
+    )
+    assert result is True
 
-    team = database.get_team_by_id(1)
-    team = db_entities.Team(team)
-    assert round(team.team_points, 2) == round(1, 2)
+    team = db_entities.Team(
+        database.get_team_by_id(1)
+    )
+    assert round(team.team_points, 2) == 1
 
-    json_data = spoof_pet("Danbis", "Lil-jad")
-    result = dink.parse_pet(json_data, None)
-    assert result == True
+    # Further valid pets cannot complete the same tile again.
+    for pet_name in [
+        "Lil-jad",
+        "Lil-Dan",
+        "Lil-Ryan",
+    ]:
+        json_data = spoof_pet(
+            "Danbis",
+            pet_name
+        )
+        result = dink.parse_pet(
+            json_data,
+            None
+        )
+        assert result is True
 
-    team = database.get_team_by_id(1)
-    team = db_entities.Team(team)
-    assert round(team.team_points, 2) == round(2, 2)
+        team = db_entities.Team(
+            database.get_team_by_id(1)
+        )
+        assert round(team.team_points, 2) == 1
 
+    player = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
+    assert round(player.tiles_completed, 2) == 1
 
-    json_data = spoof_pet("Danbis", "Lil-Dan")
-    result = dink.parse_pet(json_data, None)
-    assert result == True
-
-    team = database.get_team_by_id(1)
-    team = db_entities.Team(team)
-    assert round(team.team_points, 2) == round(3, 2)
-
-    json_data = spoof_pet("Danbis", "Lil-Ryan")
-    result = dink.parse_pet(json_data, None)
-    assert result == True
-
-    team = database.get_team_by_id(1)
-    team = db_entities.Team(team)
-    assert round(team.team_points, 2) == round(3, 2)
+    completed_tiles = (
+        database.get_completed_tiles_by_team_id_and_tile_id(
+            1,
+            4
+        )
+    )
+    assert len(completed_tiles) == 1
 
 def test_pet_tile_input_infinite(client):
     database.reset_tables()
     database.read_teams('test_csvs/default_team_1.csv')
     database.read_tiles('test_csvs/default_tiles_pet_infinite')
 
-    team = database.get_team_by_id(1)
-    team = db_entities.Team(team)
-    assert round(team.team_points, 2) == round(0, 2)
+    team = db_entities.Team(
+        database.get_team_by_id(1)
+    )
+    assert round(team.team_points, 2) == 0
 
     for i in range(10):
-        json_data = spoof_pet("Danbis", str(i))
-        result = dink.parse_pet(json_data, None)
-        assert result == True
+        json_data = spoof_pet(
+            "Danbis",
+            str(i)
+        )
+        result = dink.parse_pet(
+            json_data,
+            None
+        )
+        assert result is True
 
-        team = database.get_team_by_id(1)
-        team = db_entities.Team(team)
-        assert round(team.team_points, 2) == round(i + 1, 2)
+        team = db_entities.Team(
+            database.get_team_by_id(1)
+        )
+
+        # The first valid pet completes the tile.
+        # Later pets cannot score it again.
+        assert round(team.team_points, 2) == 1
+
+    player = db_entities.Player(
+        database.get_player_by_name("Danbis")
+    )
+    assert round(player.tiles_completed, 2) == 1
+
+    completed_tiles = (
+        database.get_completed_tiles_by_team_id_and_tile_id(
+            1,
+            4
+        )
+    )
+    assert len(completed_tiles) == 1
