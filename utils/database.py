@@ -332,6 +332,41 @@ def ensure_schema():
         ''')
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dink_auth_audit (
+                audit_id BIGSERIAL PRIMARY KEY,
+                failure_reason TEXT NOT NULL,
+                claimed_player_name TEXT,
+                claimed_dink_account_hash TEXT,
+                claimed_event_type TEXT,
+                request_format TEXT NOT NULL,
+                source_ip TEXT,
+                user_agent TEXT,
+                received_at TIMESTAMPTZ NOT NULL
+                    DEFAULT CURRENT_TIMESTAMP,
+                CHECK (
+                    failure_reason IN (
+                        'MISSING_SECRET',
+                        'INVALID_SECRET',
+                        'SERVER_MISCONFIGURED'
+                    )
+                ),
+                CHECK (
+                    request_format IN (
+                        'JSON',
+                        'MULTIPART',
+                        'OTHER'
+                    )
+                )
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_dink_auth_audit_received_at
+            ON dink_auth_audit (received_at DESC)
+        ''')
+
+
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS dink_event_progress (
                 progress_id BIGSERIAL PRIMARY KEY,
                 event_id BIGINT NOT NULL,
@@ -1523,6 +1558,54 @@ def link_player_to_discord(player_id, discord_user_id):
             """,
             (discord_user_id, player_id)
         )
+
+def record_dink_auth_failure(
+    failure_reason,
+    request_format,
+    claimed_player_name=None,
+    claimed_dink_account_hash=None,
+    claimed_event_type=None,
+    source_ip=None,
+    user_agent=None
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO dink_auth_audit (
+                failure_reason,
+                claimed_player_name,
+                claimed_dink_account_hash,
+                claimed_event_type,
+                request_format,
+                source_ip,
+                user_agent
+            )
+            VALUES (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s
+            )
+            RETURNING audit_id
+            ''',
+            (
+                failure_reason,
+                claimed_player_name,
+                claimed_dink_account_hash,
+                claimed_event_type,
+                request_format,
+                source_ip,
+                user_agent
+            )
+        )
+
+        return cursor.fetchone()[0]
+
+
 
 def get_dink_identity_by_hash(dink_account_hash):
     with connect() as conn:
@@ -4587,6 +4670,41 @@ def reset_tables():
             received_at
         )
     ''')
+
+    cursor.execute('''
+        CREATE TABLE dink_auth_audit (
+            audit_id BIGSERIAL PRIMARY KEY,
+            failure_reason TEXT NOT NULL,
+            claimed_player_name TEXT,
+            claimed_dink_account_hash TEXT,
+            claimed_event_type TEXT,
+            request_format TEXT NOT NULL,
+            source_ip TEXT,
+            user_agent TEXT,
+            received_at TIMESTAMPTZ NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+            CHECK (
+                failure_reason IN (
+                    'MISSING_SECRET',
+                    'INVALID_SECRET',
+                    'SERVER_MISCONFIGURED'
+                )
+            ),
+            CHECK (
+                request_format IN (
+                    'JSON',
+                    'MULTIPART',
+                    'OTHER'
+                )
+            )
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE INDEX idx_dink_auth_audit_received_at
+        ON dink_auth_audit (received_at DESC)
+    ''')
+
 
     cursor.execute('''
             CREATE TABLE wom_metric_state (

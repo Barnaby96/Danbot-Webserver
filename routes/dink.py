@@ -1,5 +1,6 @@
 import os
 import hashlib
+import hmac
 from collections import defaultdict
 
 from flask import Blueprint, jsonify, request
@@ -98,6 +99,99 @@ def save_dink_evidence_screenshot(
         'dink_evidence',
         filename
     )
+
+def get_dink_auth_audit_details():
+    request_format = 'OTHER'
+    data = None
+
+    if request.is_json:
+        request_format = 'JSON'
+        data = request.get_json(silent=True)
+
+    elif request.mimetype == 'multipart/form-data':
+        request_format = 'MULTIPART'
+
+        json_data = request.form.get('payload_json')
+
+        if json_data is not None:
+            try:
+                data = json.loads(json_data)
+            except (json.JSONDecodeError, TypeError):
+                data = None
+
+    if not isinstance(data, dict):
+        data = {}
+
+    def get_claimed_text(field_name):
+        value = data.get(field_name)
+
+        if not isinstance(value, str):
+            return None
+
+        value = value.strip()
+
+        if not value:
+            return None
+
+        return value[:255]
+
+    return {
+        'request_format': request_format,
+        'claimed_player_name': get_claimed_text(
+            'playerName'
+        ),
+        'claimed_dink_account_hash': get_claimed_text(
+            'dinkAccountHash'
+        ),
+        'claimed_event_type': get_claimed_text(
+            'type'
+        )
+    }
+
+
+def record_dink_auth_failure(failure_reason):
+    audit_details = get_dink_auth_audit_details()
+
+    user_agent = request.user_agent.string
+
+    if user_agent:
+        user_agent = user_agent[:512]
+    else:
+        user_agent = None
+
+    return database.record_dink_auth_failure(
+        failure_reason=failure_reason,
+        request_format=audit_details['request_format'],
+        claimed_player_name=(
+            audit_details['claimed_player_name']
+        ),
+        claimed_dink_account_hash=(
+            audit_details['claimed_dink_account_hash']
+        ),
+        claimed_event_type=(
+            audit_details['claimed_event_type']
+        ),
+        source_ip=request.remote_addr,
+        user_agent=user_agent
+    )
+
+
+def is_valid_dink_ingest_secret(provided_secret):
+    expected_secret = os.getenv('DINK_INGEST_SECRET')
+
+    if not expected_secret:
+        return False, 'SERVER_MISCONFIGURED'
+
+    if provided_secret is None:
+        return False, 'MISSING_SECRET'
+
+    if not hmac.compare_digest(
+        provided_secret,
+        expected_secret
+    ):
+        return False, 'INVALID_SECRET'
+
+    return True, None
 
 
 def get_dink_request_payload():
@@ -1053,8 +1147,37 @@ def parse_json_data(json_data, img_file) -> dict[str, list[str]]:
 
 
 
-@drop_submission_route.route('', methods=['POST'])
-def handle_request():
+@drop_submission_route.route(
+    '',
+    defaults={'provided_secret': None},
+    methods=['POST']
+)
+@drop_submission_route.route(
+    '/<provided_secret>',
+    methods=['POST']
+)
+def handle_request(provided_secret):
+    is_authorised, failure_reason = (
+        is_valid_dink_ingest_secret(
+            provided_secret
+        )
+    )
+
+    if not is_authorised:
+        try:
+            record_dink_auth_failure(
+                failure_reason
+            )
+        except Exception as e:
+            print(
+                "Failed to record Dink auth failure: "
+                f"{e}"
+            )
+
+        return jsonify({
+            "message": "Not found"
+        }), 404
+
     if os.getenv('TRACKING') == "FALSE":
         return jsonify({
             "message": "Not currently tracking"

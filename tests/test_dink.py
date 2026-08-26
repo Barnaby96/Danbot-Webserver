@@ -18,6 +18,11 @@ from routes import dink
 from utils import database, db_entities
 from main import create_app
 
+TEST_DINK_INGEST_SECRET = "danbot-dink-test-secret"
+TEST_DINK_ENDPOINT = (
+    f"/dink/{TEST_DINK_INGEST_SECRET}"
+)
+
 
 @pytest.fixture(autouse=True)
 def dink_test_database():
@@ -32,7 +37,12 @@ def dink_test_database():
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch):
+    monkeypatch.setenv(
+        "DINK_INGEST_SECRET",
+        TEST_DINK_INGEST_SECRET
+    )
+
     app = create_app()
     app.config["TESTING"] = True
 
@@ -742,7 +752,7 @@ def test_linked_drop_processes_through_json_endpoint(
     )
 
     response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json={
             "playerName": "Dink Tester",
             "dinkAccountHash": dink_account_hash,
@@ -835,7 +845,7 @@ def test_linked_pet_processes_through_json_endpoint(
     )
 
     response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json={
             "playerName": "Dink Tester",
             "dinkAccountHash": dink_account_hash,
@@ -922,7 +932,7 @@ def test_irrelevant_linked_loot_is_ignored_through_endpoint(
     }
 
     response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json=payload
     )
 
@@ -1021,7 +1031,7 @@ def test_multi_item_loot_scores_all_relevant_items(
     )
 
     response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json={
             "playerName": "Dink Tester",
             "dinkAccountHash": dink_account_hash,
@@ -1160,12 +1170,12 @@ def test_duplicate_delivery_cannot_double_score(
     }
 
     first_response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json=payload
     )
 
     duplicate_response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json=payload
     )
 
@@ -1299,7 +1309,7 @@ def test_stranded_received_event_recovers_on_retry(
     )
 
     response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json=payload
     )
 
@@ -1441,7 +1451,7 @@ def test_retry_after_recovered_event_becomes_duplicate(
     )
 
     recovery_response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json=payload
     )
 
@@ -1452,7 +1462,7 @@ def test_retry_after_recovered_event_becomes_duplicate(
     assert recovery_data["processing_status"] == "PROCESSED"
 
     later_retry_response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json=payload
     )
 
@@ -1693,7 +1703,7 @@ def test_n_of_unique_does_not_count_same_item_twice(
     )
 
     first_response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json={
             "playerName": "Dink Tester",
             "dinkAccountHash": dink_account_hash,
@@ -1741,7 +1751,7 @@ def test_n_of_unique_does_not_count_same_item_twice(
     assert progress_by_trigger["Royal Item C"] == 0
 
     second_response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         json={
             "playerName": "Dink Tester",
             "dinkAccountHash": dink_account_hash,
@@ -1837,7 +1847,7 @@ def test_ignored_multipart_event_minimises_evidence(
     ).hexdigest()
 
     response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         data={
             "payload_json": json.dumps(payload),
             "file": (
@@ -1938,7 +1948,7 @@ def test_duplicate_receipt_is_minimised(
     screenshot_bytes = b"duplicate screenshot bytes"
 
     first_response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         data={
             "payload_json": json.dumps(payload),
             "file": (
@@ -1950,7 +1960,7 @@ def test_duplicate_receipt_is_minimised(
     )
 
     duplicate_response = client.post(
-        "/dink",
+        TEST_DINK_ENDPOINT,
         data={
             "payload_json": json.dumps(payload),
             "file": (
@@ -2052,3 +2062,420 @@ def test_dink_event_fingerprint_is_canonical_and_includes_screenshot():
         first_fingerprint
         != different_screenshot_fingerprint
     )
+
+def test_missing_dink_secret_is_rejected_and_audited(
+    client,
+    monkeypatch
+):
+    monkeypatch.setenv(
+        "TRACKING",
+        "TRUE"
+    )
+
+    response = client.post(
+        "/dink",
+        json={
+            "playerName": "Dink Tester",
+            "dinkAccountHash": "missing-secret-test-hash",
+            "type": "LOOT",
+            "extra": {
+                "items": [
+                    {
+                        "name": "Unauthorised Test Drop",
+                        "quantity": 1
+                    }
+                ]
+            }
+        }
+    )
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "message": "Not found"
+    }
+
+    with database.connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                failure_reason,
+                claimed_player_name,
+                claimed_dink_account_hash,
+                claimed_event_type,
+                request_format
+            FROM dink_auth_audit
+            '''
+        )
+
+        audit_rows = cursor.fetchall()
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_events"
+        )
+        event_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_identities"
+        )
+        identity_count = cursor.fetchone()[0]
+
+    assert audit_rows == [
+        (
+            "MISSING_SECRET",
+            "Dink Tester",
+            "missing-secret-test-hash",
+            "LOOT",
+            "JSON"
+        )
+    ]
+
+    assert event_count == 0
+    assert identity_count == 0
+
+def test_invalid_dink_secret_is_rejected_and_audited(
+    client,
+    monkeypatch
+):
+    monkeypatch.setenv(
+        "TRACKING",
+        "TRUE"
+    )
+
+    response = client.post(
+        "/dink/not-the-correct-secret",
+        json={
+            "playerName": "Dink Tester",
+            "dinkAccountHash": "invalid-secret-test-hash",
+            "type": "PET",
+            "extra": {
+                "petName": "Unauthorised Test Pet"
+            }
+        }
+    )
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "message": "Not found"
+    }
+
+    with database.connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                failure_reason,
+                claimed_player_name,
+                claimed_dink_account_hash,
+                claimed_event_type,
+                request_format
+            FROM dink_auth_audit
+            '''
+        )
+
+        audit_rows = cursor.fetchall()
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_events"
+        )
+        event_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_identities"
+        )
+        identity_count = cursor.fetchone()[0]
+
+    assert audit_rows == [
+        (
+            "INVALID_SECRET",
+            "Dink Tester",
+            "invalid-secret-test-hash",
+            "PET",
+            "JSON"
+        )
+    ]
+
+    assert event_count == 0
+    assert identity_count == 0
+
+def test_missing_server_dink_secret_fails_closed_and_is_audited(
+    client,
+    monkeypatch
+):
+    monkeypatch.delenv(
+        "DINK_INGEST_SECRET",
+        raising=False
+    )
+
+    monkeypatch.setenv(
+        "TRACKING",
+        "TRUE"
+    )
+
+    response = client.post(
+        "/dink/anything",
+        json={
+            "playerName": "Dink Tester",
+            "dinkAccountHash": "server-misconfigured-test-hash",
+            "type": "LOOT",
+            "extra": {
+                "items": [
+                    {
+                        "name": "Misconfigured Test Drop",
+                        "quantity": 1
+                    }
+                ]
+            }
+        }
+    )
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "message": "Not found"
+    }
+
+    with database.connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                failure_reason,
+                claimed_player_name,
+                claimed_dink_account_hash,
+                claimed_event_type,
+                request_format
+            FROM dink_auth_audit
+            '''
+        )
+
+        audit_rows = cursor.fetchall()
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_events"
+        )
+        event_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_identities"
+        )
+        identity_count = cursor.fetchone()[0]
+
+    assert audit_rows == [
+        (
+            "SERVER_MISCONFIGURED",
+            "Dink Tester",
+            "server-misconfigured-test-hash",
+            "LOOT",
+            "JSON"
+        )
+    ]
+
+    assert event_count == 0
+    assert identity_count == 0
+
+def test_invalid_dink_secret_does_not_save_screenshot(
+    client,
+    monkeypatch
+):
+    monkeypatch.setenv(
+        "TRACKING",
+        "TRUE"
+    )
+
+    evidence_directory = (
+        PROJECT_ROOT
+        / "uploads"
+        / "dink_evidence"
+    )
+
+    files_before = (
+        set(evidence_directory.iterdir())
+        if evidence_directory.exists()
+        else set()
+    )
+
+    payload = {
+        "playerName": "Dink Tester",
+        "dinkAccountHash": "invalid-multipart-test-hash",
+        "type": "LOOT",
+        "extra": {
+            "items": [
+                {
+                    "name": "Unauthorised Screenshot Drop",
+                    "quantity": 1
+                }
+            ]
+        }
+    }
+
+    response = client.post(
+        "/dink/not-the-correct-secret",
+        data={
+            "payload_json": json.dumps(payload),
+            "file": (
+                io.BytesIO(
+                    b"unauthorised screenshot bytes"
+                ),
+                "unauthorised-evidence.png"
+            )
+        },
+        content_type="multipart/form-data"
+    )
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "message": "Not found"
+    }
+
+    files_after = (
+        set(evidence_directory.iterdir())
+        if evidence_directory.exists()
+        else set()
+    )
+
+    with database.connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                failure_reason,
+                claimed_player_name,
+                claimed_dink_account_hash,
+                claimed_event_type,
+                request_format
+            FROM dink_auth_audit
+            '''
+        )
+
+        audit_rows = cursor.fetchall()
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_events"
+        )
+        event_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_identities"
+        )
+        identity_count = cursor.fetchone()[0]
+
+    assert files_after == files_before
+
+    assert audit_rows == [
+        (
+            "INVALID_SECRET",
+            "Dink Tester",
+            "invalid-multipart-test-hash",
+            "LOOT",
+            "MULTIPART"
+        )
+    ]
+
+    assert event_count == 0
+    assert identity_count == 0
+
+def test_malformed_unauthorised_dink_request_is_audited(
+    client,
+    monkeypatch
+):
+    monkeypatch.setenv(
+        "TRACKING",
+        "TRUE"
+    )
+
+    response = client.post(
+        "/dink/not-the-correct-secret",
+        data={
+            "payload_json": "{this is not valid json"
+        },
+        content_type="multipart/form-data"
+    )
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "message": "Not found"
+    }
+
+    with database.connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                failure_reason,
+                claimed_player_name,
+                claimed_dink_account_hash,
+                claimed_event_type,
+                request_format
+            FROM dink_auth_audit
+            '''
+        )
+
+        audit_rows = cursor.fetchall()
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_events"
+        )
+        event_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_identities"
+        )
+        identity_count = cursor.fetchone()[0]
+
+    assert audit_rows == [
+        (
+            "INVALID_SECRET",
+            None,
+            None,
+            None,
+            "MULTIPART"
+        )
+    ]
+
+    assert event_count == 0
+    assert identity_count == 0
+
+def test_valid_dink_secret_does_not_create_auth_audit(
+    client,
+    monkeypatch
+):
+    monkeypatch.setenv(
+        "TRACKING",
+        "TRUE"
+    )
+
+    response = client.post(
+        TEST_DINK_ENDPOINT,
+        json={
+            "playerName": "Dink Tester",
+            "dinkAccountHash": "valid-secret-audit-test-hash",
+            "type": "KILL_COUNT",
+            "extra": {
+                "boss": "Goblin",
+                "killCount": 1
+            }
+        }
+    )
+
+    assert response.status_code == 200
+
+    with database.connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_auth_audit"
+        )
+        audit_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM dink_events"
+        )
+        event_count = cursor.fetchone()[0]
+
+    assert audit_count == 0
+    assert event_count == 1
