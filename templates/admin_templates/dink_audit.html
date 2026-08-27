@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 style="text-align: center; color: #fff;">
+    Dink Authentication Audit
+</h1>
+
+<div style="width: 95%; margin: 0 auto; background-color: #1e1e1e;
+            padding: 20px; border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+            overflow-x: auto;">
+
+    <p style="color: #ccc; margin-top: 0;">
+        Showing the 100 most recent rejected Dink requests.
+    </p>
+
+    {% if audit_entries %}
+        <table style="width: 100%; border-collapse: collapse; color: #ccc;">
+            <thead>
+                <tr style="background-color: #2b2b2b;">
+                    <th style="padding: 10px; text-align: left;">Time</th>
+                    <th style="padding: 10px; text-align: left;">Reason</th>
+                    <th style="padding: 10px; text-align: left;">Claimed RSN</th>
+                    <th style="padding: 10px; text-align: left;">Dink Hash</th>
+                    <th style="padding: 10px; text-align: left;">Event</th>
+                    <th style="padding: 10px; text-align: left;">Format</th>
+                    <th style="padding: 10px; text-align: left;">Source IP</th>
+                    <th style="padding: 10px; text-align: left;">User Agent</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for entry in audit_entries %}
+                    <tr style="border-top: 1px solid #444;">
+                        <td style="padding: 10px; white-space: nowrap;">
+                            {{ entry.received_at }}
+                        </td>
+
+                        <td style="padding: 10px;">
+                            {{ entry.failure_reason }}
+                        </td>
+
+                        <td style="padding: 10px;">
+                            {{ entry.claimed_player_name or '—' }}
+                        </td>
+
+                        <td style="padding: 10px; word-break: break-all;">
+                            {{ entry.claimed_dink_account_hash or '—' }}
+                        </td>
+
+                        <td style="padding: 10px;">
+                            {{ entry.claimed_event_type or '—' }}
+                        </td>
+
+                        <td style="padding: 10px;">
+                            {{ entry.request_format }}
+                        </td>
+
+                        <td style="padding: 10px;">
+                            {{ entry.source_ip or '—' }}
+                        </td>
+
+                        <td style="padding: 10px; word-break: break-word;">
+                            {{ entry.user_agent or '—' }}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p style="color: #ccc;">
+            No rejected Dink requests have been recorded.
+        </p>
+    {% endif %}
+</div>
+{% endblock %}

@@ -28,6 +28,34 @@ def admin_required(f):
 def home():
     return render_template('admin_templates/admin_home.html')
 
+@admin_routes.route('/dink_audit', methods=['GET'])
+@admin_required
+def dink_audit():
+    audit_rows = database.get_recent_dink_auth_failures(
+        limit=100
+    )
+
+    audit_entries = [
+        {
+            'audit_id': row[0],
+            'failure_reason': row[1],
+            'claimed_player_name': row[2],
+            'claimed_dink_account_hash': row[3],
+            'claimed_event_type': row[4],
+            'request_format': row[5],
+            'source_ip': row[6],
+            'user_agent': row[7],
+            'received_at': row[8]
+        }
+        for row in audit_rows
+    ]
+
+    return render_template(
+        'admin_templates/dink_audit.html',
+        audit_entries=audit_entries
+    )
+
+
 
 @admin_routes.route('/bingo_setup', methods=['GET', 'POST'])
 @admin_required

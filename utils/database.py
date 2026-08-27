@@ -1606,6 +1606,39 @@ def record_dink_auth_failure(
         return cursor.fetchone()[0]
 
 
+def get_recent_dink_auth_failures(limit=100):
+    limit = max(
+        1,
+        min(int(limit), 500)
+    )
+
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT
+                audit_id,
+                failure_reason,
+                claimed_player_name,
+                claimed_dink_account_hash,
+                claimed_event_type,
+                request_format,
+                source_ip,
+                user_agent,
+                received_at
+            FROM dink_auth_audit
+            ORDER BY
+                received_at DESC,
+                audit_id DESC
+            LIMIT %s
+            ''',
+            (limit,)
+        )
+
+        return cursor.fetchall()
+
+
+
 
 def get_dink_identity_by_hash(dink_account_hash):
     with connect() as conn:
