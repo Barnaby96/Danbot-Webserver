@@ -12,7 +12,9 @@
 
     <p style="color: #ccc; margin-top: 0;">
         Dink identities observed by DanBot.
-        This page is read-only and does not change identity links.
+        Unlinked identities can be manually assigned to a DanBot player.
+        Linking an identity does not automatically process historical
+        pending Dink events.
     </p>
 
     {% if identity_entries %}
@@ -31,6 +33,7 @@
                     <th style="padding: 10px; text-align: left;">First Seen</th>
                     <th style="padding: 10px; text-align: left;">Last Seen</th>
                     <th style="padding: 10px; text-align: left;">Linked At</th>
+                    <th style="padding: 10px; text-align: left;">Action</th>
                 </tr>
             </thead>
 
@@ -111,6 +114,57 @@
 
                         <td style="padding: 10px; white-space: nowrap;">
                             {{ entry.linked_at or '—' }}
+                        </td>
+
+                        <td style="padding: 10px; min-width: 220px;">
+                            {% if entry.stored_status != 'LINKED' %}
+                                <form method="POST"
+                                    action="{{ url_for('admin_routes.dink_identities') }}"
+                                    onsubmit="return confirm(
+                                        'Link this Dink identity to the selected player? ' +
+                                        'Historical pending events will not be processed.'
+                                    );">
+
+                                    <input type="hidden"
+                                        name="action"
+                                        value="manual_link">
+
+                                    <input type="hidden"
+                                        name="dink_account_hash"
+                                        value="{{ entry.dink_account_hash }}">
+
+                                    <select name="player_id"
+                                            required
+                                            style="width: 100%;
+                                                margin-bottom: 8px;
+                                                padding: 6px;
+                                                background-color: #2b2b2b;
+                                                color: #fff;
+                                                border: 1px solid #555;">
+
+                                        <option value="">
+                                            Select player...
+                                        </option>
+
+                                        {% for team_name, players in players_by_team.items() %}
+                                            <optgroup label="{{ team_name }}">
+                                                {% for player in players %}
+                                                    <option value="{{ player[0] }}">
+                                                        {{ player[1] }}
+                                                    </option>
+                                                {% endfor %}
+                                            </optgroup>
+                                        {% endfor %}
+                                    </select>
+
+                                    <button type="submit"
+                                            style="width: 100%;">
+                                        Link Identity
+                                    </button>
+                                </form>
+                            {% else %}
+                                —
+                            {% endif %}
                         </td>
                     </tr>
                 {% endfor %}

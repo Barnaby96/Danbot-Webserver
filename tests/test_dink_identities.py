@@ -319,6 +319,209 @@ def test_admin_sees_existing_linked_hash_reason(client):
     assert "primary-test-hash" in page
     assert "secondary-test-hash" in page
 
+def test_manual_link_leaves_pending_events_unprocessed(client):
+    create_test_player(
+        "Manual Link Tester"
+    )
+
+    ingest_result = ingest_observation(
+        "Manual Link Tester",
+        "manual-link-test-hash",
+        "Goblin"
+    )
+
+    player = database.get_player_by_name(
+        "Manual Link Tester"
+    )
+
+    link_result = database.manually_link_dink_identity(
+        "manual-link-test-hash",
+        player[0]
+    )
+
+    assert link_result["status"] == "LINKED"
+    assert link_result["player_id"] == player[0]
+
+    identity = database.get_dink_identity_by_hash(
+        "manual-link-test-hash"
+    )
+
+    assert identity is not None
+    assert identity[1] == player[0]
+    assert identity[3] == "LINKED"
+
+    event = database.get_dink_event_by_id(
+        ingest_result["event_id"]
+    )
+
+    assert event is not None
+    assert event[5] is None
+    assert event[10] == "PENDING_IDENTITY"
+    assert event[12] is None
+
+def test_manual_link_refuses_second_hash_for_player(client):
+    create_test_player(
+        "Double Manual Tester"
+    )
+
+    for boss in (
+        "Goblin",
+        "Man",
+        "Spider"
+    ):
+        ingest_observation(
+            "Double Manual Tester",
+            "primary-manual-test-hash",
+            boss
+        )
+
+    ingest_observation(
+        "Double Manual Tester",
+        "secondary-manual-test-hash",
+        "Rat"
+    )
+
+    player = database.get_player_by_name(
+        "Double Manual Tester"
+    )
+
+    link_result = database.manually_link_dink_identity(
+        "secondary-manual-test-hash",
+        player[0]
+    )
+
+    assert link_result["status"] == "PLAYER_ALREADY_LINKED"
+    assert link_result["player_id"] == player[0]
+    assert (
+        link_result["existing_linked_hash"]
+        == "primary-manual-test-hash"
+    )
+
+    primary_identity = database.get_dink_identity_by_hash(
+        "primary-manual-test-hash"
+    )
+
+    secondary_identity = database.get_dink_identity_by_hash(
+        "secondary-manual-test-hash"
+    )
+
+    assert primary_identity is not None
+    assert primary_identity[1] == player[0]
+    assert primary_identity[3] == "LINKED"
+
+    assert secondary_identity is not None
+    assert secondary_identity[1] is None
+    assert secondary_identity[3] == "PENDING"
+    assert secondary_identity[6] is None
+
+def test_admin_can_manually_link_dink_identity(client):
+    create_test_player(
+        "Route Link Tester"
+    )
+
+    ingest_result = ingest_observation(
+        "Route Link Tester",
+        "route-link-test-hash",
+        "Goblin"
+    )
+
+    player = database.get_player_by_name(
+        "Route Link Tester"
+    )
+
+    login_admin(client)
+
+    response = client.post(
+        "/admin/dink_identities",
+        data={
+            "action": "manual_link",
+            "dink_account_hash": "route-link-test-hash",
+            "player_id": str(player[0])
+        }
+    )
+
+    assert response.status_code == 302
+    assert (
+        response.headers["Location"]
+        .endswith("/admin/dink_identities")
+    )
+
+    identity = database.get_dink_identity_by_hash(
+        "route-link-test-hash"
+    )
+
+    assert identity is not None
+    assert identity[1] == player[0]
+    assert identity[3] == "LINKED"
+
+    event = database.get_dink_event_by_id(
+        ingest_result["event_id"]
+    )
+
+    assert event is not None
+    assert event[5] is None
+    assert event[10] == "PENDING_IDENTITY"
+    assert event[12] is None
+
+def test_admin_manual_link_refuses_second_hash(client):
+    create_test_player(
+        "Route Double Tester"
+    )
+
+    for boss in (
+        "Goblin",
+        "Man",
+        "Spider"
+    ):
+        ingest_observation(
+            "Route Double Tester",
+            "route-primary-test-hash",
+            boss
+        )
+
+    ingest_observation(
+        "Route Double Tester",
+        "route-secondary-test-hash",
+        "Rat"
+    )
+
+    player = database.get_player_by_name(
+        "Route Double Tester"
+    )
+
+    login_admin(client)
+
+    response = client.post(
+        "/admin/dink_identities",
+        data={
+            "action": "manual_link",
+            "dink_account_hash": "route-secondary-test-hash",
+            "player_id": str(player[0])
+        }
+    )
+
+    assert response.status_code == 302
+    assert (
+        response.headers["Location"]
+        .endswith("/admin/dink_identities")
+    )
+
+    primary_identity = database.get_dink_identity_by_hash(
+        "route-primary-test-hash"
+    )
+
+    secondary_identity = database.get_dink_identity_by_hash(
+        "route-secondary-test-hash"
+    )
+
+    assert primary_identity is not None
+    assert primary_identity[1] == player[0]
+    assert primary_identity[3] == "LINKED"
+
+    assert secondary_identity is not None
+    assert secondary_identity[1] is None
+    assert secondary_identity[3] == "PENDING"
+
 
 def test_non_admin_cannot_view_dink_identities(client):
     create_test_user(

@@ -1883,6 +1883,117 @@ def record_pending_dink_identity(
         conn.commit()
         return status
 
+def manually_link_dink_identity(
+    dink_account_hash,
+    player_id
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                player_id,
+                status
+            FROM dink_identities
+            WHERE dink_account_hash = %s
+            FOR UPDATE
+            ''',
+            (dink_account_hash,)
+        )
+
+        identity = cursor.fetchone()
+
+        if identity is None:
+            return {
+                'status': 'IDENTITY_NOT_FOUND',
+                'player_id': None,
+                'existing_linked_hash': None
+            }
+
+        current_player_id, current_status = identity
+
+        if current_status == 'LINKED':
+            if current_player_id == player_id:
+                return {
+                    'status': 'LINKED',
+                    'player_id': player_id,
+                    'existing_linked_hash': None
+                }
+
+            return {
+                'status': 'IDENTITY_ALREADY_LINKED',
+                'player_id': current_player_id,
+                'existing_linked_hash': dink_account_hash
+            }
+
+        cursor.execute(
+            '''
+            SELECT player_id
+            FROM players
+            WHERE player_id = %s
+            FOR UPDATE
+            ''',
+            (player_id,)
+        )
+
+        player = cursor.fetchone()
+
+        if player is None:
+            return {
+                'status': 'PLAYER_NOT_FOUND',
+                'player_id': None,
+                'existing_linked_hash': None
+            }
+
+        cursor.execute(
+            '''
+            SELECT dink_account_hash
+            FROM dink_identities
+            WHERE player_id = %s
+              AND status = 'LINKED'
+              AND dink_account_hash != %s
+            LIMIT 1
+            ''',
+            (
+                player_id,
+                dink_account_hash
+            )
+        )
+
+        existing_link = cursor.fetchone()
+
+        if existing_link is not None:
+            return {
+                'status': 'PLAYER_ALREADY_LINKED',
+                'player_id': player_id,
+                'existing_linked_hash': existing_link[0]
+            }
+
+        cursor.execute(
+            '''
+            UPDATE dink_identities
+            SET
+                player_id = %s,
+                status = 'LINKED',
+                linked_at = CURRENT_TIMESTAMP,
+                last_seen = CURRENT_TIMESTAMP
+            WHERE dink_account_hash = %s
+            ''',
+            (
+                player_id,
+                dink_account_hash
+            )
+        )
+
+        conn.commit()
+
+        return {
+            'status': 'LINKED',
+            'player_id': player_id,
+            'existing_linked_hash': None
+        }
+
 def try_link_dink_identity(
     dink_account_hash,
     player_name,

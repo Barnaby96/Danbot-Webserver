@@ -56,9 +56,119 @@ def dink_audit():
     )
 
 
-@admin_routes.route('/dink_identities', methods=['GET'])
+@admin_routes.route(
+    '/dink_identities',
+    methods=['GET', 'POST']
+)
 @admin_required
 def dink_identities():
+    if request.method == 'POST':
+        action = request.form.get(
+            'action',
+            ''
+        ).strip()
+
+        if action != 'manual_link':
+            flash(
+                'Unknown Dink identity action.',
+                'danger'
+            )
+            return redirect(
+                url_for('admin_routes.dink_identities')
+            )
+
+        dink_account_hash = request.form.get(
+            'dink_account_hash',
+            ''
+        ).strip()
+
+        player_id_value = request.form.get(
+            'player_id',
+            ''
+        ).strip()
+
+        if not dink_account_hash:
+            flash(
+                'A Dink account hash is required.',
+                'danger'
+            )
+            return redirect(
+                url_for('admin_routes.dink_identities')
+            )
+
+        try:
+            player_id = int(player_id_value)
+
+            if player_id <= 0:
+                raise ValueError
+
+        except (TypeError, ValueError):
+            flash(
+                'Please select a valid DanBot player.',
+                'danger'
+            )
+            return redirect(
+                url_for('admin_routes.dink_identities')
+            )
+
+        result = database.manually_link_dink_identity(
+            dink_account_hash,
+            player_id
+        )
+
+        if result['status'] == 'LINKED':
+            player = database.get_player_by_id(
+                result['player_id']
+            )
+
+            player_name = (
+                player[1]
+                if player is not None
+                else f"Player {result['player_id']}"
+            )
+
+            flash(
+                f'Dink identity linked to {player_name}. '
+                'Historical pending events were not processed.',
+                'success'
+            )
+
+        elif result['status'] == 'IDENTITY_NOT_FOUND':
+            flash(
+                'That Dink identity no longer exists.',
+                'danger'
+            )
+
+        elif result['status'] == 'PLAYER_NOT_FOUND':
+            flash(
+                'The selected DanBot player no longer exists.',
+                'danger'
+            )
+
+        elif result['status'] == 'IDENTITY_ALREADY_LINKED':
+            flash(
+                'That Dink identity is already linked to '
+                'a different player.',
+                'danger'
+            )
+
+        elif result['status'] == 'PLAYER_ALREADY_LINKED':
+            flash(
+                'That player is already linked to Dink hash '
+                f"{result['existing_linked_hash']}.",
+                'danger'
+            )
+
+        else:
+            flash(
+                'The Dink identity could not be linked.',
+                'danger'
+            )
+
+        return redirect(
+            url_for('admin_routes.dink_identities')
+        )
+
     identity_rows = database.get_dink_identity_review_rows()
 
     identity_entries = []
@@ -133,9 +243,12 @@ def dink_identities():
             }
         )
 
+    players_by_team = database.get_players_by_team()
+
     return render_template(
         'admin_templates/dink_identities.html',
-        identity_entries=identity_entries
+        identity_entries=identity_entries,
+        players_by_team=players_by_team
     )
 
 
