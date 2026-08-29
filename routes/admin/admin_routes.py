@@ -56,6 +56,88 @@ def dink_audit():
     )
 
 
+@admin_routes.route('/dink_identities', methods=['GET'])
+@admin_required
+def dink_identities():
+    identity_rows = database.get_dink_identity_review_rows()
+
+    identity_entries = []
+
+    for row in identity_rows:
+        stored_status = row[2]
+        observations = row[9]
+        conflicting_rsns = row[10] or []
+        matching_player_id = row[11]
+        existing_linked_hash = row[14]
+
+        display_status = stored_status
+        review_reason = None
+
+        if stored_status == 'LINKED':
+            review_reason = 'Verified and linked'
+
+        elif stored_status == 'CONFLICT':
+            if conflicting_rsns:
+                review_reason = (
+                    'Hash seen with conflicting RSNs'
+                )
+            elif existing_linked_hash:
+                review_reason = (
+                    'Player already linked to another '
+                    'Dink account'
+                )
+            else:
+                review_reason = (
+                    'Identity conflict requires review'
+                )
+
+        elif stored_status == 'PENDING':
+            if (
+                observations >= 3
+                and matching_player_id is None
+            ):
+                display_status = 'PLAYER_NOT_FOUND'
+                review_reason = (
+                    'Three or more observations but no '
+                    'matching DanBot player'
+                )
+            elif observations < 3:
+                review_reason = (
+                    f'Awaiting verification '
+                    f'({observations}/3 observations)'
+                )
+            else:
+                review_reason = (
+                    'Identity still pending review'
+                )
+
+        identity_entries.append(
+            {
+                'dink_account_hash': row[0],
+                'observed_rsn': row[1],
+                'stored_status': stored_status,
+                'display_status': display_status,
+                'player_id': row[3],
+                'linked_player_name': row[4],
+                'linked_team_name': row[5],
+                'first_seen': row[6],
+                'last_seen': row[7],
+                'linked_at': row[8],
+                'observations': observations,
+                'conflicting_rsns': conflicting_rsns,
+                'matching_player_id': matching_player_id,
+                'matching_player_name': row[12],
+                'matching_team_name': row[13],
+                'existing_linked_hash': existing_linked_hash,
+                'review_reason': review_reason
+            }
+        )
+
+    return render_template(
+        'admin_templates/dink_identities.html',
+        identity_entries=identity_entries
+    )
+
 
 @admin_routes.route('/bingo_setup', methods=['GET', 'POST'])
 @admin_required

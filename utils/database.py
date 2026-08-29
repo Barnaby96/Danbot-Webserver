@@ -1638,6 +1638,94 @@ def get_recent_dink_auth_failures(limit=100):
         return cursor.fetchall()
 
 
+def get_dink_identity_review_rows():
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT
+                identity.dink_account_hash,
+                identity.observed_rsn,
+                identity.status,
+                identity.player_id,
+                linked_player.player_name,
+                linked_team.team_name,
+                identity.first_seen,
+                identity.last_seen,
+                identity.linked_at,
+
+                (
+                    SELECT COUNT(*)
+                    FROM dink_events event
+                    WHERE
+                        event.dink_account_hash
+                            = identity.dink_account_hash
+                        AND lower(event.player_name)
+                            = lower(identity.observed_rsn)
+                        AND event.duplicate_of_event_id IS NULL
+                ) AS observations,
+
+                (
+                    SELECT ARRAY_AGG(
+                        DISTINCT event.player_name
+                        ORDER BY event.player_name
+                    )
+                    FROM dink_events event
+                    WHERE
+                        event.dink_account_hash
+                            = identity.dink_account_hash
+                        AND event.player_name IS NOT NULL
+                        AND lower(event.player_name)
+                            != lower(identity.observed_rsn)
+                        AND event.duplicate_of_event_id IS NULL
+                ) AS conflicting_rsns,
+
+                matching_player.player_id,
+                matching_player.player_name,
+                matching_team.team_name,
+
+                (
+                    SELECT linked_identity.dink_account_hash
+                    FROM dink_identities linked_identity
+                    WHERE
+                        linked_identity.player_id
+                            = matching_player.player_id
+                        AND linked_identity.status = 'LINKED'
+                        AND linked_identity.dink_account_hash
+                            != identity.dink_account_hash
+                    LIMIT 1
+                ) AS existing_linked_hash
+
+            FROM dink_identities identity
+
+            LEFT JOIN players linked_player
+                ON linked_player.player_id = identity.player_id
+
+            LEFT JOIN teams linked_team
+                ON linked_team.team_id = linked_player.team_id
+
+            LEFT JOIN players matching_player
+                ON lower(matching_player.player_name)
+                    = lower(identity.observed_rsn)
+
+            LEFT JOIN teams matching_team
+                ON matching_team.team_id
+                    = matching_player.team_id
+
+            ORDER BY
+                CASE identity.status
+                    WHEN 'CONFLICT' THEN 1
+                    WHEN 'PENDING' THEN 2
+                    WHEN 'LINKED' THEN 3
+                    ELSE 4
+                END,
+                identity.last_seen DESC,
+                identity.dink_account_hash
+            '''
+        )
+
+        return cursor.fetchall()
+
 
 
 def get_dink_identity_by_hash(dink_account_hash):
