@@ -1,7 +1,7 @@
 import os
 from functools import wraps
 
-from flask import request, render_template, Blueprint, flash, redirect, url_for, abort, current_app
+from flask import request, render_template, Blueprint, flash, redirect, url_for, abort, current_app, send_file
 from flask_login import current_user, login_required
 from werkzeug.utils import secure_filename
 
@@ -55,6 +55,75 @@ def dink_audit():
         audit_entries=audit_entries
     )
 
+
+@admin_routes.route(
+    '/dink_event/<int:event_id>/screenshot',
+    methods=['GET']
+)
+@admin_required
+def dink_event_screenshot(event_id):
+    event = database.get_dink_event_by_id(
+        event_id
+    )
+
+    if event is None or not event[8]:
+        abort(404)
+
+    screenshot_path = event[8]
+
+    evidence_directory = os.path.realpath(
+        os.path.join(
+            current_app.root_path,
+            'uploads',
+            'dink_evidence'
+        )
+    )
+
+    absolute_path = os.path.realpath(
+        os.path.join(
+            current_app.root_path,
+            screenshot_path
+        )
+    )
+
+    try:
+        common_path = os.path.commonpath(
+            [
+                evidence_directory,
+                absolute_path
+            ]
+        )
+    except ValueError:
+        abort(404)
+
+    if common_path != evidence_directory:
+        abort(404)
+
+    filename = os.path.basename(
+        absolute_path
+    )
+
+    filename_root, extension = os.path.splitext(
+        filename
+    )
+
+    if filename_root != f'dink_event_{event_id}':
+        abort(404)
+
+    if extension.lower() not in {
+        '.png',
+        '.jpg',
+        '.jpeg',
+        '.webp'
+    }:
+        abort(404)
+
+    if not os.path.isfile(absolute_path):
+        abort(404)
+
+    return send_file(
+        absolute_path
+    )
 
 @admin_routes.route(
     '/dink_identities',
@@ -251,6 +320,229 @@ def dink_identities():
         players_by_team=players_by_team
     )
 
+
+@admin_routes.route(
+    '/dink_events',
+    methods=['GET', 'POST']
+)
+@admin_required
+def dink_events():
+    if request.method == 'POST':
+        action = request.form.get(
+            'action',
+            ''
+        ).strip()
+
+        event_id_value = request.form.get(
+            'event_id',
+            ''
+        ).strip()
+
+        try:
+            event_id = int(event_id_value)
+
+            if event_id <= 0:
+                raise ValueError
+
+        except (TypeError, ValueError):
+            flash(
+                'Please select a valid Dink event.',
+                'danger'
+            )
+            return redirect(
+                url_for('admin_routes.dink_events')
+            )
+
+        if action == 'reject_event':
+            result = database.reject_pending_dink_event(
+                event_id
+            )
+
+            if result['status'] == 'REJECTED':
+                flash(
+                    f'Dink event #{event_id} was rejected.',
+                    'success'
+                )
+
+            elif result['status'] == 'EVENT_NOT_FOUND':
+                flash(
+                    'That Dink event no longer exists.',
+                    'danger'
+                )
+
+            elif result['status'] == 'DUPLICATE_EVENT':
+                flash(
+                    'Duplicate Dink events cannot be '
+                    'reviewed manually.',
+                    'danger'
+                )
+
+            elif result['status'] == 'INVALID_STATUS':
+                flash(
+                    f'Dink event #{event_id} can no longer '
+                    f'be rejected because its status is '
+                    f"{result['current_status']}.",
+                    'danger'
+                )
+
+            else:
+                flash(
+                    'The Dink event could not be rejected.',
+                    'danger'
+                )
+
+            return redirect(
+                url_for('admin_routes.dink_events')
+            )
+
+        if action == 'accept_event':
+            event = database.get_dink_event_by_id(
+                event_id
+            )
+
+            if event is None:
+                flash(
+                    'That Dink event no longer exists.',
+                    'danger'
+                )
+                return redirect(
+                    url_for('admin_routes.dink_events')
+                )
+
+            if event[2] is not None:
+                flash(
+                    'Duplicate Dink events cannot be '
+                    'reviewed manually.',
+                    'danger'
+                )
+                return redirect(
+                    url_for('admin_routes.dink_events')
+                )
+
+            if event[10] != 'PENDING_IDENTITY':
+                flash(
+                    f'Dink event #{event_id} can no longer '
+                    f'be accepted because its status is '
+                    f'{event[10]}.',
+                    'danger'
+                )
+                return redirect(
+                    url_for('admin_routes.dink_events')
+                )
+
+            identity = database.get_dink_identity_by_hash(
+                event[3]
+            )
+
+            if (
+                identity is None
+                or identity[3] != 'LINKED'
+                or identity[1] is None
+            ):
+                flash(
+                    'This Dink event cannot be accepted '
+                    'until its identity is linked.',
+                    'danger'
+                )
+                return redirect(
+                    url_for('admin_routes.dink_events')
+                )
+
+            try:
+                event_progress = dink.get_dink_event_progress(
+                    event[7]
+                )
+
+                result = database.process_dink_event_progress(
+                    event_id=event_id,
+                    player_id=identity[1],
+                    event_progress=event_progress
+                )
+
+            except ValueError as error:
+                flash(
+                    str(error),
+                    'danger'
+                )
+                return redirect(
+                    url_for('admin_routes.dink_events')
+                )
+
+            if result['status'] == 'IGNORED':
+                dink.cleanup_ignored_dink_event(
+                    event_id
+                )
+
+                flash(
+                    f'Dink event #{event_id} was accepted '
+                    'but did not match any active bingo '
+                    'progress.',
+                    'info'
+                )
+
+            else:
+                flash(
+                    f'Dink event #{event_id} was accepted '
+                    'and processed.',
+                    'success'
+                )
+
+            return redirect(
+                url_for('admin_routes.dink_events')
+            )
+
+        flash(
+            'Unknown Dink event review action.',
+            'danger'
+        )
+
+        return redirect(
+            url_for('admin_routes.dink_events')
+        )
+
+    event_rows = (
+        database.get_pending_dink_event_review_rows()
+    )
+
+    event_entries = []
+
+    for row in event_rows:
+        claimed_rsn = row[2]
+        observed_rsn = row[8]
+
+        rsn_mismatch = (
+            isinstance(claimed_rsn, str)
+            and isinstance(observed_rsn, str)
+            and claimed_rsn.lower()
+                != observed_rsn.lower()
+        )
+
+        event_entries.append(
+            {
+                'event_id': row[0],
+                'dink_account_hash': row[1],
+                'claimed_rsn': claimed_rsn,
+                'event_type': row[3],
+                'raw_payload': row[4],
+                'screenshot_path': row[5],
+                'received_at': row[6],
+                'identity_status': row[7],
+                'observed_rsn': observed_rsn,
+                'linked_player_id': row[9],
+                'linked_player_name': row[10],
+                'linked_team_name': row[11],
+                'rsn_mismatch': rsn_mismatch,
+                'identity_ready': (
+                    row[7] == 'LINKED'
+                    and row[9] is not None
+                )
+            }
+        )
+
+    return render_template(
+        'admin_templates/dink_events.html',
+        event_entries=event_entries
+    )
 
 @admin_routes.route('/bingo_setup', methods=['GET', 'POST'])
 @admin_required

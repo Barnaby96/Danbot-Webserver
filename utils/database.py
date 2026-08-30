@@ -2400,6 +2400,117 @@ def update_dink_event_identity(
 
         conn.commit()
 
+
+def reject_pending_dink_event(event_id):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                player_id,
+                status,
+                duplicate_of_event_id
+            FROM dink_events
+            WHERE event_id = %s
+            FOR UPDATE
+            ''',
+            (event_id,)
+        )
+
+        event = cursor.fetchone()
+
+        if event is None:
+            return {
+                'status': 'EVENT_NOT_FOUND'
+            }
+
+        (
+            player_id,
+            status,
+            duplicate_of_event_id
+        ) = event
+
+        if duplicate_of_event_id is not None:
+            return {
+                'status': 'DUPLICATE_EVENT'
+            }
+
+        if status != 'PENDING_IDENTITY':
+            return {
+                'status': 'INVALID_STATUS',
+                'current_status': status
+            }
+
+        _update_dink_event_identity(
+            cursor=cursor,
+            event_id=event_id,
+            player_id=player_id,
+            status='REJECTED'
+        )
+
+        conn.commit()
+
+        return {
+            'status': 'REJECTED'
+        }
+
+
+def get_pending_dink_event_review_rows():
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                event.event_id,
+                event.dink_account_hash,
+                event.player_name,
+                event.event_type,
+                event.raw_payload,
+                event.screenshot_path,
+                event.received_at,
+
+                identity.status,
+                identity.observed_rsn,
+                identity.player_id,
+
+                linked_player.player_name,
+                linked_team.team_name
+
+            FROM dink_events event
+
+            LEFT JOIN dink_identities identity
+                ON identity.dink_account_hash
+                    = event.dink_account_hash
+
+            LEFT JOIN players linked_player
+                ON linked_player.player_id
+                    = identity.player_id
+
+            LEFT JOIN teams linked_team
+                ON linked_team.team_id
+                    = linked_player.team_id
+
+            WHERE event.status = 'PENDING_IDENTITY'
+              AND event.duplicate_of_event_id IS NULL
+
+            ORDER BY
+                CASE
+                    WHEN identity.status = 'LINKED' THEN 1
+                    WHEN identity.status = 'CONFLICT' THEN 2
+                    WHEN identity.status = 'PENDING' THEN 3
+                    ELSE 4
+                END,
+                event.received_at,
+                event.event_id
+            '''
+        )
+
+        return cursor.fetchall()
+
+
+
 def get_pending_dink_events_by_hash(dink_account_hash):
     with connect() as conn:
         cursor = conn.cursor()
