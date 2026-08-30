@@ -332,6 +332,43 @@ def ensure_schema():
         ''')
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS staff_review_decisions (
+                decision_id BIGSERIAL PRIMARY KEY,
+                subject_type TEXT NOT NULL,
+                subject_id BIGINT NOT NULL,
+                decision TEXT NOT NULL,
+                review_source TEXT NOT NULL,
+                reviewer_id BIGINT NOT NULL,
+                reviewer_name TEXT NOT NULL,
+                reason TEXT,
+                decided_at TIMESTAMPTZ NOT NULL
+                    DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (
+                    subject_type,
+                    subject_id
+                ),
+                CHECK (
+                    subject_type IN (
+                        'DINK_EVENT',
+                        'MANUAL_EVIDENCE'
+                    )
+                ),
+                CHECK (
+                    decision IN (
+                        'ACCEPT',
+                        'REJECT'
+                    )
+                ),
+                CHECK (
+                    review_source IN (
+                        'WEB',
+                        'DISCORD'
+                    )
+                )
+            )
+        ''')
+
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS dink_auth_audit (
                 audit_id BIGSERIAL PRIMARY KEY,
                 failure_reason TEXT NOT NULL,
@@ -2401,7 +2438,115 @@ def update_dink_event_identity(
         conn.commit()
 
 
-def reject_pending_dink_event(event_id):
+def _record_staff_review_decision(
+    cursor,
+    subject_type,
+    subject_id,
+    decision,
+    review_source,
+    reviewer_id,
+    reviewer_name,
+    reason=None
+):
+    if reviewer_name is None:
+        raise ValueError(
+            "Reviewer name is required."
+        )
+
+    reviewer_name = str(
+        reviewer_name
+    ).strip()
+
+    if not reviewer_name:
+        raise ValueError(
+            "Reviewer name is required."
+        )
+    if reviewer_id is None:
+        raise ValueError(
+            "Reviewer ID is required."
+        )
+
+    if reason is not None:
+        reason = str(reason).strip()
+
+        if not reason:
+            reason = None
+
+    cursor.execute(
+        '''
+        INSERT INTO staff_review_decisions (
+            subject_type,
+            subject_id,
+            decision,
+            review_source,
+            reviewer_id,
+            reviewer_name,
+            reason
+        )
+        VALUES (
+            %s,
+            %s,
+            %s,
+            %s,
+            %s,
+            %s,
+            %s
+        )
+        RETURNING decision_id
+        ''',
+        (
+            subject_type,
+            subject_id,
+            decision,
+            review_source,
+            reviewer_id,
+            reviewer_name,
+            reason
+        )
+    )
+
+    return cursor.fetchone()[0]
+
+
+def get_staff_review_decision(
+    subject_type,
+    subject_id
+):
+    with connect() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT
+                decision_id,
+                subject_type,
+                subject_id,
+                decision,
+                review_source,
+                reviewer_id,
+                reviewer_name,
+                reason,
+                decided_at
+            FROM staff_review_decisions
+            WHERE subject_type = %s
+              AND subject_id = %s
+            ''',
+            (
+                subject_type,
+                subject_id
+            )
+        )
+
+        return cursor.fetchone()
+
+
+def reject_pending_dink_event(
+    event_id,
+    review_source,
+    reviewer_id,
+    reviewer_name,
+    reason=None
+):
     with connect() as conn:
         cursor = conn.cursor()
 
@@ -2449,10 +2594,22 @@ def reject_pending_dink_event(event_id):
             status='REJECTED'
         )
 
+        decision_id = _record_staff_review_decision(
+            cursor=cursor,
+            subject_type='DINK_EVENT',
+            subject_id=event_id,
+            decision='REJECT',
+            review_source=review_source,
+            reviewer_id=reviewer_id,
+            reviewer_name=reviewer_name,
+            reason=reason
+        )
+
         conn.commit()
 
         return {
-            'status': 'REJECTED'
+            'status': 'REJECTED',
+            'decision_id': decision_id
         }
 
 
@@ -2650,7 +2807,11 @@ def get_dink_event_progress_by_event_id(event_id):
 def process_dink_event_progress(
     event_id,
     player_id,
-    event_progress
+    event_progress,
+    review_source=None,
+    reviewer_id=None,
+    reviewer_name=None,
+    reason=None
 ):
     with connect() as conn:
         cursor = conn.cursor()
@@ -2764,11 +2925,51 @@ def process_dink_event_progress(
             status=final_status
         )
 
+        review_values = (
+            review_source,
+            reviewer_id,
+            reviewer_name
+        )
+
+        has_review_metadata = any(
+            value is not None
+            for value in review_values
+        )
+
+        if has_review_metadata:
+            if not all(
+                value is not None
+                for value in review_values
+            ):
+                raise ValueError(
+                    "Incomplete staff review metadata."
+                )
+
+            if status != 'PENDING_IDENTITY':
+                raise ValueError(
+                    "Staff review decisions can only be "
+                    "recorded for pending historical events."
+                )
+
+            decision_id = _record_staff_review_decision(
+                cursor=cursor,
+                subject_type='DINK_EVENT',
+                subject_id=event_id,
+                decision='ACCEPT',
+                review_source=review_source,
+                reviewer_id=reviewer_id,
+                reviewer_name=reviewer_name,
+                reason=reason
+            )
+        else:
+            decision_id = None
+
         conn.commit()
 
         return {
             "status": final_status,
-            "progress": all_results
+            "progress": all_results,
+            "decision_id": decision_id
         }
 
 # Functions for 'drops' table
@@ -5011,6 +5212,43 @@ def reset_tables():
             dink_account_hash,
             player_name,
             received_at
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE staff_review_decisions (
+            decision_id BIGSERIAL PRIMARY KEY,
+            subject_type TEXT NOT NULL,
+            subject_id BIGINT NOT NULL,
+            decision TEXT NOT NULL,
+            review_source TEXT NOT NULL,
+            reviewer_id BIGINT NOT NULL,
+            reviewer_name TEXT NOT NULL,
+            reason TEXT,
+            decided_at TIMESTAMPTZ NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (
+                subject_type,
+                subject_id
+            ),
+            CHECK (
+                subject_type IN (
+                    'DINK_EVENT',
+                    'MANUAL_EVIDENCE'
+                )
+            ),
+            CHECK (
+                decision IN (
+                    'ACCEPT',
+                    'REJECT'
+                )
+            ),
+            CHECK (
+                review_source IN (
+                    'WEB',
+                    'DISCORD'
+                )
+            )
         )
     ''')
 

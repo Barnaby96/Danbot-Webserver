@@ -592,7 +592,13 @@ def test_reject_pending_dink_event_marks_event_rejected(client):
     assert ingest_result["status"] == "PENDING"
 
     reject_result = database.reject_pending_dink_event(
-        ingest_result["event_id"]
+        event_id=ingest_result["event_id"],
+        review_source="WEB",
+        reviewer_id=123,
+        reviewer_name="Reject Test Admin",
+        reason=(
+            "Screenshot does not clearly show the drop."
+        )
     )
 
     assert reject_result["status"] == "REJECTED"
@@ -605,6 +611,23 @@ def test_reject_pending_dink_event_marks_event_rejected(client):
     assert event[5] is None
     assert event[10] == "REJECTED"
     assert event[12] is not None
+
+    decision = database.get_staff_review_decision(
+        "DINK_EVENT",
+        ingest_result["event_id"]
+    )
+
+    assert decision is not None
+    assert decision[1] == "DINK_EVENT"
+    assert decision[2] == ingest_result["event_id"]
+    assert decision[3] == "REJECT"
+    assert decision[4] == "WEB"
+    assert decision[5] == 123
+    assert decision[6] == "Reject Test Admin"
+    assert decision[7] == (
+        "Screenshot does not clearly show the drop."
+    )
+    assert decision[8] is not None
 
     review_rows = database.get_pending_dink_event_review_rows()
 
@@ -830,6 +853,27 @@ def test_admin_can_accept_historical_dink_event(client):
     )
 
     assert len(completed_tiles) == 1
+
+    admin_user = database.get_user_by_email(
+        "identity-admin@example.test"
+    )
+
+    assert admin_user is not None
+
+    decision = database.get_staff_review_decision(
+        "DINK_EVENT",
+        event_id
+    )
+
+    assert decision is not None
+    assert decision[1] == "DINK_EVENT"
+    assert decision[2] == event_id
+    assert decision[3] == "ACCEPT"
+    assert decision[4] == "WEB"
+    assert decision[5] == admin_user.id
+    assert decision[6] == "Identity Admin"
+    assert decision[7] is None
+    assert decision[8] is not None
 
     review_rows = (
         database.get_pending_dink_event_review_rows()

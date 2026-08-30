@@ -1,17 +1,747 @@
+import os
 import sqlite3
+import discord
 
 from discord.ext import commands
 from discord import default_permissions, guild_only
 
 from routes import dink
-from utils import scapify
+from utils import database, db_entities, scapify
+from utils.dink_evidence import resolve_dink_evidence_path
 from utils.spoofed_jsons import spoof_drop
 from utils.autocomplete import *
 from utils.send_webhook import send_webhook
 
+def _get_submission_summary(row):
+    event_type = row[3]
+    raw_payload = row[4]
+
+    if not isinstance(raw_payload, dict):
+        return "Automatic submission"
+
+    extra = raw_payload.get(
+        "extra",
+        {}
+    )
+
+    if not isinstance(extra, dict):
+        extra = {}
+
+    if event_type == "LOOT":
+        items = extra.get(
+            "items",
+            []
+        )
+
+        item_descriptions = []
+
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+
+                item_name = item.get(
+                    "name"
+                )
+
+                if not item_name:
+                    continue
+
+                quantity = item.get(
+                    "quantity",
+                    1
+                )
+
+                if quantity == 1:
+                    item_descriptions.append(
+                        str(item_name)
+                    )
+                else:
+                    item_descriptions.append(
+                        f"{quantity} × {item_name}"
+                    )
+
+        if item_descriptions:
+            return ", ".join(
+                item_descriptions
+            )
+
+    elif event_type == "PET":
+        pet_name = extra.get(
+            "petName"
+        )
+
+        if pet_name:
+            return f"Pet: {pet_name}"
+
+    return "Automatic submission"
+
+
+def _get_submission_evidence_file(row):
+    event_id = int(
+        row[0]
+    )
+
+    absolute_path = resolve_dink_evidence_path(
+        event_id=event_id,
+        screenshot_path=row[5]
+    )
+
+    if absolute_path is None:
+        return None, None
+
+    extension = os.path.splitext(
+        absolute_path
+    )[1].lower()
+
+    filename = (
+        f"submission_{event_id}"
+        f"{extension}"
+    )
+
+    return (
+        discord.File(
+            absolute_path,
+            filename=filename
+        ),
+        filename
+    )
+
+def _build_submission_review_embed(
+    row,
+    evidence_filename=None
+    ):
+    event_id = row[0]
+    claimed_rsn = row[2]
+    received_at = row[6]
+    linked_player_name = row[10]
+    linked_team_name = row[11]
+
+    player_name = (
+        linked_player_name
+        or claimed_rsn
+        or "Unknown player"
+    )
+
+    team_name = (
+        linked_team_name
+        or "No team"
+    )
+
+    if received_at is not None:
+        received_timestamp = int(
+            received_at.timestamp()
+        )
+
+        submitted_text = (
+            f"<t:{received_timestamp}:f>\n"
+            f"<t:{received_timestamp}:R>"
+        )
+    else:
+        submitted_text = "Unknown"
+
+    embed = discord.Embed(
+        title="Review Submission",
+        description=_get_submission_summary(
+            row
+        )
+    )
+
+    embed.add_field(
+        name="Player",
+        value=player_name,
+        inline=True
+    )
+
+    embed.add_field(
+        name="Team",
+        value=team_name,
+        inline=True
+    )
+
+    embed.add_field(
+        name="Submitted",
+        value=submitted_text,
+        inline=False
+    )
+
+    if evidence_filename:
+        embed.set_image(
+            url=(
+                "attachment://"
+                f"{evidence_filename}"
+            )
+        )
+    else:
+        embed.add_field(
+            name="Evidence",
+            value="No screenshot available",
+            inline=False
+        )
+
+    embed.set_footer(
+        text=(
+            "Automatically recorded"
+            f" | Submission #{event_id}"
+        )
+    )
+
+    return embed
+
+
+async def _check_submission_reviewer(
+    interaction,
+    reviewer_id
+):
+    if (
+        interaction.user.id
+        != int(reviewer_id)
+    ):
+        await interaction.response.send_message(
+            (
+                "This review panel belongs "
+                "to another staff member."
+            ),
+            ephemeral=True
+        )
+        return False
+
+    permissions = getattr(
+        interaction.user,
+        "guild_permissions",
+        None
+    )
+
+    if (
+        permissions is None
+        or not permissions.manage_webhooks
+    ):
+        await interaction.response.send_message(
+            (
+                "You no longer have permission "
+                "to review submissions."
+            ),
+            ephemeral=True
+        )
+        return False
+
+    return True
+
+
+class SubmissionReviewSelect(
+    discord.ui.Select
+):
+    def __init__(
+        self,
+        review_rows,
+        selected_event_id,
+        reviewer_id
+    ):
+        self.review_rows = {
+            int(row[0]): row
+            for row in review_rows
+        }
+
+        self.reviewer_id = int(
+            reviewer_id
+        )
+
+        options = []
+
+        for row in review_rows[:25]:
+            event_id = int(
+                row[0]
+            )
+
+            player_name = (
+                row[10]
+                or row[2]
+                or "Unknown player"
+            )
+
+            team_name = (
+                row[11]
+                or "No team"
+            )
+
+            submission_summary = (
+                _get_submission_summary(
+                    row
+                )
+            )
+
+            label = (
+                f"{player_name} - "
+                f"{submission_summary}"
+            )[:100]
+
+            description = (
+                f"Team: {team_name}"
+            )[:100]
+
+            options.append(
+                discord.SelectOption(
+                    label=label,
+                    value=str(event_id),
+                    description=description,
+                    default=(
+                        event_id
+                        == selected_event_id
+                    )
+                )
+            )
+
+        super().__init__(
+            placeholder=(
+                "Choose a submission to review"
+            ),
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+        if not await _check_submission_reviewer(
+            interaction=interaction,
+            reviewer_id=self.reviewer_id
+        ):
+            return
+
+        event_id = int(
+            self.values[0]
+        )
+
+        row = self.review_rows.get(
+            event_id
+        )
+
+        if row is None:
+            await interaction.response.send_message(
+                (
+                    "That submission is no "
+                    "longer available."
+                ),
+                ephemeral=True
+            )
+            return
+
+        view = SubmissionReviewView(
+            review_rows=list(
+                self.review_rows.values()
+            ),
+            selected_event_id=event_id,
+            reviewer_id=self.reviewer_id
+        )
+
+        evidence_file, evidence_filename = (
+            _get_submission_evidence_file(
+                row
+            )
+        )
+
+        embed = _build_submission_review_embed(
+            row,
+            evidence_filename=evidence_filename
+        )
+
+        if evidence_file is not None:
+            await interaction.response.edit_message(
+                embed=embed,
+                view=view,
+                attachments=[],
+                file=evidence_file
+            )
+        else:
+            await interaction.response.edit_message(
+                embed=embed,
+                view=view,
+                attachments=[]
+            )
+
+
+class SubmissionRejectionModal(
+    discord.ui.Modal
+):
+    def __init__(
+        self,
+        event_id,
+        reviewer_id
+    ):
+        super().__init__(
+            title="Not Accepting Submission"
+        )
+
+        self.event_id = int(
+            event_id
+        )
+
+        self.reviewer_id = int(
+            reviewer_id
+        )
+
+        self.reason = discord.ui.InputText(
+            label="Why wasn't this accepted?",
+            style=discord.InputTextStyle.long,
+            placeholder=(
+                "For example: the screenshot "
+                "doesn't clearly show the drop."
+            ),
+            min_length=3,
+            max_length=500,
+            required=True
+        )
+
+        self.add_item(
+            self.reason
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+        if not await _check_submission_reviewer(
+            interaction=interaction,
+            reviewer_id=self.reviewer_id
+        ):
+            return
+
+        result = (
+            database.reject_pending_dink_event(
+                event_id=self.event_id,
+                review_source="DISCORD",
+                reviewer_id=(
+                    interaction.user.id
+                ),
+                reviewer_name=(
+                    interaction.user.display_name
+                ),
+                reason=self.reason.value
+            )
+        )
+
+        if result["status"] == "REJECTED":
+            await interaction.response.edit_message(
+                content=(
+                    "❌ **Submission not accepted**"
+                    "\n\n"
+                    f"**Reason:** {self.reason.value}"
+                    "\n\n"
+                    f"Reviewed by "
+                    f"{interaction.user.display_name}."
+                ),
+                embed=None,
+                view=None,
+                attachments=[]
+            )
+            return
+
+        if result["status"] in (
+            "EVENT_NOT_FOUND",
+            "DUPLICATE_EVENT"
+        ):
+            message = (
+                "This submission is no "
+                "longer available."
+            )
+        else:
+            message = (
+                "This submission has already "
+                "been reviewed."
+            )
+
+        await interaction.response.edit_message(
+            content=message,
+            embed=None,
+            view=None,
+            attachments=[]
+        )
+
+
+class SubmissionReviewView(
+    discord.ui.View
+):
+    def __init__(
+        self,
+        review_rows,
+        selected_event_id,
+        reviewer_id
+    ):
+        super().__init__(
+            timeout=900
+        )
+
+        self.review_rows = review_rows
+        self.selected_event_id = int(
+            selected_event_id
+        )
+        self.reviewer_id = int(
+            reviewer_id
+        )
+
+        self.add_item(
+            SubmissionReviewSelect(
+                review_rows=review_rows,
+                selected_event_id=(
+                    self.selected_event_id
+                ),
+                reviewer_id=(
+                    self.reviewer_id
+                )
+            )
+        )
+
+    async def _check_reviewer(
+        self,
+        interaction
+    ):
+        return await _check_submission_reviewer(
+            interaction=interaction,
+            reviewer_id=self.reviewer_id
+        )
+
+    @discord.ui.button(
+        label="Accept",
+        emoji="✅",
+        style=discord.ButtonStyle.success,
+        row=1
+    )
+    async def accept_submission(
+        self,
+        button,
+        interaction
+    ):
+        if not await self._check_reviewer(
+            interaction
+        ):
+            return
+
+        event = database.get_dink_event_by_id(
+            self.selected_event_id
+        )
+
+        if event is None:
+            await interaction.response.edit_message(
+                content=(
+                    "This submission is no "
+                    "longer available."
+                ),
+                embed=None,
+                view=None
+            )
+            return
+
+        if event[2] is not None:
+            await interaction.response.edit_message(
+                content=(
+                    "This submission cannot "
+                    "be reviewed."
+                ),
+                embed=None,
+                view=None
+            )
+            return
+
+        if event[10] != "PENDING_IDENTITY":
+            await interaction.response.edit_message(
+                content=(
+                    "This submission has already "
+                    "been reviewed."
+                ),
+                embed=None,
+                view=None
+            )
+            return
+
+        identity = (
+            database.get_dink_identity_by_hash(
+                event[3]
+            )
+        )
+
+        if (
+            identity is None
+            or identity[3] != "LINKED"
+            or identity[1] is None
+        ):
+            await interaction.response.edit_message(
+                content=(
+                    "This submission is not "
+                    "ready for review yet."
+                ),
+                embed=None,
+                view=None
+            )
+            return
+
+        try:
+            event_progress = (
+                dink.get_dink_event_progress(
+                    event[7]
+                )
+            )
+
+            result = (
+                database.process_dink_event_progress(
+                    event_id=(
+                        self.selected_event_id
+                    ),
+                    player_id=identity[1],
+                    event_progress=event_progress,
+                    review_source="DISCORD",
+                    reviewer_id=(
+                        interaction.user.id
+                    ),
+                    reviewer_name=(
+                        interaction.user.display_name
+                    )
+                )
+            )
+
+        except ValueError:
+            await interaction.response.edit_message(
+                content=(
+                    "This submission could not "
+                    "be accepted. It may have "
+                    "already been reviewed."
+                ),
+                embed=None,
+                view=None
+            )
+            return
+
+        if result["status"] == "IGNORED":
+            dink.cleanup_ignored_dink_event(
+                self.selected_event_id
+            )
+
+            result_text = (
+                "✅ **Submission accepted**\n\n"
+                "It did not match any active "
+                "bingo progress."
+            )
+
+        else:
+            result_text = (
+                "✅ **Submission accepted**"
+            )
+
+        await interaction.response.edit_message(
+            content=(
+                f"{result_text}\n\n"
+                f"Reviewed by "
+                f"{interaction.user.display_name}."
+            ),
+            embed=None,
+            view=None
+        )
+
+    @discord.ui.button(
+        label="Reject",
+        emoji="❌",
+        style=discord.ButtonStyle.danger,
+        row=1
+    )
+    async def reject_submission(
+        self,
+        button,
+        interaction
+    ):
+        if not await self._check_reviewer(
+            interaction
+        ):
+            return
+
+        modal = SubmissionRejectionModal(
+            event_id=self.selected_event_id,
+            reviewer_id=self.reviewer_id
+        )
+
+        await interaction.response.send_modal(
+            modal
+        )
+
 class AdminCog(commands.Cog):
+    review = discord.SlashCommandGroup(
+        "review",
+        "Review bingo submissions"
+    )
+
     def __init__(self, bot):
         self.bot = bot
+
+    @review.command(
+        name="submission",
+        description="Review bingo submissions"
+    )
+    @default_permissions(
+        manage_webhooks=True
+    )
+    @guild_only()
+    async def review_submission(
+        self,
+        ctx: discord.ApplicationContext
+    ):
+        await ctx.defer(
+            ephemeral=True
+        )
+
+        review_rows = [
+            row
+            for row
+            in database.get_pending_dink_event_review_rows()
+            if (
+                row[7] == "LINKED"
+                and row[9] is not None
+            )
+        ]
+
+        if not review_rows:
+            await ctx.respond(
+                (
+                    "There are no submissions "
+                    "ready for review."
+                ),
+                ephemeral=True
+            )
+            return
+
+        selected_row = review_rows[0]
+
+        view = SubmissionReviewView(
+            review_rows=review_rows,
+            selected_event_id=int(
+                selected_row[0]
+            ),
+            reviewer_id=ctx.author.id
+        )
+
+        evidence_file, evidence_filename = (
+            _get_submission_evidence_file(
+                selected_row
+            )
+        )
+
+        embed = _build_submission_review_embed(
+            selected_row,
+            evidence_filename=evidence_filename
+        )
+
+        if evidence_file is not None:
+            await ctx.respond(
+                embed=embed,
+                view=view,
+                file=evidence_file,
+                ephemeral=True
+            )
+        else:
+            await ctx.respond(
+                embed=embed,
+                view=view,
+                ephemeral=True
+            )
 
     @discord.slash_command(
         name="set_team_role",

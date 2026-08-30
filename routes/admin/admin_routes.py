@@ -1,12 +1,12 @@
-import os
 from functools import wraps
 
-from flask import request, render_template, Blueprint, flash, redirect, url_for, abort, current_app, send_file
+from flask import request, render_template, Blueprint, flash, redirect, url_for, abort, send_file
 from flask_login import current_user, login_required
 from werkzeug.utils import secure_filename
 
 from routes import dink
 from utils import database, db_entities, wom
+from utils.dink_evidence import resolve_dink_evidence_path
 from utils.database import get_player_names, get_tile_names, get_tiles
 from utils.spoofed_jsons.spoof_chat import spoof_chat
 from utils.spoofed_jsons.spoof_drop import award_drop_json
@@ -66,59 +66,15 @@ def dink_event_screenshot(event_id):
         event_id
     )
 
-    if event is None or not event[8]:
+    if event is None:
         abort(404)
 
-    screenshot_path = event[8]
-
-    evidence_directory = os.path.realpath(
-        os.path.join(
-            current_app.root_path,
-            'uploads',
-            'dink_evidence'
-        )
+    absolute_path = resolve_dink_evidence_path(
+        event_id=event_id,
+        screenshot_path=event[8]
     )
 
-    absolute_path = os.path.realpath(
-        os.path.join(
-            current_app.root_path,
-            screenshot_path
-        )
-    )
-
-    try:
-        common_path = os.path.commonpath(
-            [
-                evidence_directory,
-                absolute_path
-            ]
-        )
-    except ValueError:
-        abort(404)
-
-    if common_path != evidence_directory:
-        abort(404)
-
-    filename = os.path.basename(
-        absolute_path
-    )
-
-    filename_root, extension = os.path.splitext(
-        filename
-    )
-
-    if filename_root != f'dink_event_{event_id}':
-        abort(404)
-
-    if extension.lower() not in {
-        '.png',
-        '.jpg',
-        '.jpeg',
-        '.webp'
-    }:
-        abort(404)
-
-    if not os.path.isfile(absolute_path):
+    if absolute_path is None:
         abort(404)
 
     return send_file(
@@ -355,7 +311,10 @@ def dink_events():
 
         if action == 'reject_event':
             result = database.reject_pending_dink_event(
-                event_id
+                event_id=event_id,
+                review_source='WEB',
+                reviewer_id=current_user.id,
+                reviewer_name=current_user.username
             )
 
             if result['status'] == 'REJECTED':
@@ -456,7 +415,10 @@ def dink_events():
                 result = database.process_dink_event_progress(
                     event_id=event_id,
                     player_id=identity[1],
-                    event_progress=event_progress
+                    event_progress=event_progress,
+                    review_source='WEB',
+                    reviewer_id=current_user.id,
+                    reviewer_name=current_user.username
                 )
 
             except ValueError as error:
