@@ -109,22 +109,52 @@
                                    min-width: 160px;
                                    white-space: nowrap;">
                             <form method="post"
-                                  action="{{ url_for(
-                                      'admin_routes.dink_events'
-                                  ) }}">
+                                action="{{ url_for(
+                                    'admin_routes.dink_events'
+                                ) }}">
                                 <input type="hidden"
-                                       name="event_id"
-                                       value="{{ entry.event_id }}">
+                                    name="event_id"
+                                    value="{{ entry.event_id }}">
 
                                 <button type="submit"
                                         name="action"
                                         value="accept_event"
                                         onclick="return confirm(
                                             'Accept this submission and apply any matching bingo progress?'
-                                        );"
-                                        style="margin-right: 6px;">
+                                        );">
                                     Accept
                                 </button>
+                            </form>
+
+                            <form method="post"
+                                action="{{ url_for(
+                                    'admin_routes.dink_events'
+                                ) }}"
+                                style="margin-top: 10px;">
+                                <input type="hidden"
+                                    name="event_id"
+                                    value="{{ entry.event_id }}">
+
+                                <label style="display: block;
+                                            font-size: 0.85em;
+                                            margin-bottom: 4px;">
+                                    Reason if rejecting
+                                </label>
+
+                                <textarea name="reason"
+                                        required
+                                        minlength="3"
+                                        maxlength="500"
+                                        rows="3"
+                                        placeholder="Why shouldn't this submission count?"
+                                        style="width: 100%;
+                                                box-sizing: border-box;
+                                                margin-bottom: 6px;
+                                                padding: 6px;
+                                                background-color: #2b2b2b;
+                                                color: #fff;
+                                                border: 1px solid #555;
+                                                resize: vertical;"></textarea>
 
                                 <button type="submit"
                                         name="action"

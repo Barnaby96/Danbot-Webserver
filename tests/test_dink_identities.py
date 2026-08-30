@@ -714,7 +714,8 @@ def test_admin_can_reject_historical_dink_event(client):
         "/admin/dink_events",
         data={
             "action": "reject_event",
-            "event_id": str(event_id)
+            "event_id": str(event_id),
+            "reason": "Screenshot does not clearly show the drop."
         },
         follow_redirects=True
     )
@@ -739,12 +740,81 @@ def test_admin_can_reject_historical_dink_event(client):
     assert event[10] == "REJECTED"
     assert event[12] is not None
 
+    decision = database.get_staff_review_decision(
+        "DINK_EVENT",
+        event_id
+    )
+
+    assert decision is not None
+    assert decision[3] == "REJECT"
+    assert decision[4] == "WEB"
+    assert (
+        decision[7]
+        == "Screenshot does not clearly show the drop."
+    )
+
     review_rows = (
         database.get_pending_dink_event_review_rows()
     )
 
     assert review_rows == []
 
+
+def test_admin_cannot_reject_without_valid_reason(client):
+    create_test_player(
+        "Reject Reason Tester",
+        team_name="Reject Reason Team"
+    )
+
+    ingest_result = ingest_observation(
+        "Reject Reason Tester",
+        "reject-reason-test-hash",
+        "Goblin"
+    )
+
+    event_id = ingest_result["event_id"]
+
+    assert ingest_result["status"] == "PENDING"
+
+    login_admin(client)
+
+    for reason in ("", "No", "x" * 501):
+        response = client.post(
+            "/admin/dink_events",
+            data={
+                "action": "reject_event",
+                "event_id": str(event_id),
+                "reason": reason
+            },
+            follow_redirects=True
+        )
+
+        assert response.status_code == 200
+
+        page = response.get_data(
+            as_text=True
+        )
+
+        assert (
+            "Please give a reason for rejecting this submission "
+            "(3 to 500 characters)."
+            in page
+        )
+
+        event = database.get_dink_event_by_id(
+            event_id
+        )
+
+        assert event is not None
+        assert event[10] == "PENDING_IDENTITY"
+        assert event[12] is None
+
+        decision = database.get_staff_review_decision(
+            "DINK_EVENT",
+            event_id
+        )
+
+        assert decision is None
 
 def test_admin_can_accept_historical_dink_event(client):
     create_test_player(

@@ -312,11 +312,27 @@ def dink_events():
             )
 
         if action == 'reject_event':
+            reason = request.form.get(
+                'reason',
+                ''
+            ).strip()
+
+            if len(reason) < 3 or len(reason) > 500:
+                flash(
+                    'Please give a reason for rejecting this submission '
+                    '(3 to 500 characters).',
+                    'danger'
+                )
+                return redirect(
+                    url_for('admin_routes.dink_events')
+                )
+
             result = database.reject_pending_dink_event(
                 event_id=event_id,
                 review_source='WEB',
                 reviewer_id=current_user.id,
-                reviewer_name=current_user.username
+                reviewer_name=current_user.username,
+                reason=reason
             )
 
             if result['status'] == 'REJECTED':
