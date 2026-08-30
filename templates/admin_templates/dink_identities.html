@@ -2,7 +2,7 @@
 
 {% block content %}
 <h1 style="text-align: center; color: #fff;">
-    Dink Identity Review
+    Check Player Accounts
 </h1>
 
 <div style="width: 95%; margin: 0 auto; background-color: #1e1e1e;
@@ -11,10 +11,11 @@
             overflow-x: auto;">
 
     <p style="color: #ccc; margin-top: 0;">
-        Dink identities observed by DanBot.
-        Unlinked identities can be manually assigned to a DanBot player.
-        Linking an identity does not automatically process historical
-        pending Dink events.
+        Check RuneScape accounts that DanBot could not match
+        automatically. Match an account to the correct bingo player
+        when needed.
+        Matching an account does not automatically accept any
+        submissions waiting for review.
     </p>
 
     {% if identity_entries %}
@@ -23,16 +24,12 @@
                 <tr style="background-color: #2b2b2b;">
                     <th style="padding: 10px; text-align: left;">Status</th>
                     <th style="padding: 10px; text-align: left;">Reason</th>
-                    <th style="padding: 10px; text-align: left;">Observed RSN</th>
+                    <th style="padding: 10px; text-align: left;">RuneScape Account</th>
                     <th style="padding: 10px; text-align: left;">Team</th>
-                    <th style="padding: 10px; text-align: left;">Observations</th>
-                    <th style="padding: 10px; text-align: left;">Conflicting RSNs</th>
-                    <th style="padding: 10px; text-align: left;">Linked Player</th>
-                    <th style="padding: 10px; text-align: left;">Existing Linked Hash</th>
-                    <th style="padding: 10px; text-align: left;">Dink Hash</th>
-                    <th style="padding: 10px; text-align: left;">First Seen</th>
-                    <th style="padding: 10px; text-align: left;">Last Seen</th>
-                    <th style="padding: 10px; text-align: left;">Linked At</th>
+                    <th style="padding: 10px; text-align: left;">Times Seen</th>
+                    <th style="padding: 10px; text-align: left;">Other Names Seen</th>
+                    <th style="padding: 10px; text-align: left;">Matched Player</th>
+                    <th style="padding: 10px; text-align: left;">Technical Details</th>
                     <th style="padding: 10px; text-align: left;">Action</th>
                 </tr>
             </thead>
@@ -43,19 +40,19 @@
                         <td style="padding: 10px; white-space: nowrap;">
                             {% if entry.display_status == 'LINKED' %}
                                 <span style="color: #7CFC98;">
-                                    LINKED
+                                    Account matched
                                 </span>
                             {% elif entry.display_status == 'CONFLICT' %}
                                 <span style="color: #ff7b7b;">
-                                    CONFLICT
+                                    Needs staff check
                                 </span>
                             {% elif entry.display_status == 'PLAYER_NOT_FOUND' %}
                                 <span style="color: #ffb347;">
-                                    PLAYER NOT FOUND
+                                    Player not found
                                 </span>
                             {% else %}
                                 <span style="color: #f5d76e;">
-                                    PENDING
+                                    Checking account
                                 </span>
                             {% endif %}
                         </td>
@@ -96,24 +93,47 @@
                             }}
                         </td>
 
-                        <td style="padding: 10px; word-break: break-all;">
-                            {{ entry.existing_linked_hash or '—' }}
-                        </td>
+                        <td style="padding: 10px; min-width: 240px;">
+                            <details>
+                                <summary style="cursor: pointer;">
+                                    Show technical details
+                                </summary>
 
-                        <td style="padding: 10px; word-break: break-all;">
-                            {{ entry.dink_account_hash }}
-                        </td>
+                                <div style="margin-top: 10px;">
+                                    <strong>Account reference:</strong>
+                                    <div style="word-break: break-all;
+                                                margin-top: 4px;">
+                                        {{ entry.dink_account_hash }}
+                                    </div>
+                                </div>
 
-                        <td style="padding: 10px; white-space: nowrap;">
-                            {{ entry.first_seen }}
-                        </td>
+                                {% if entry.existing_linked_hash %}
+                                    <div style="margin-top: 12px;">
+                                        <strong>Existing matched reference:</strong>
+                                        <div style="word-break: break-all;
+                                                    margin-top: 4px;">
+                                            {{ entry.existing_linked_hash }}
+                                        </div>
+                                    </div>
+                                {% endif %}
 
-                        <td style="padding: 10px; white-space: nowrap;">
-                            {{ entry.last_seen }}
-                        </td>
+                                <div style="margin-top: 12px;">
+                                    <strong>First seen:</strong>
+                                    {{ entry.first_seen }}
+                                </div>
 
-                        <td style="padding: 10px; white-space: nowrap;">
-                            {{ entry.linked_at or '—' }}
+                                <div style="margin-top: 6px;">
+                                    <strong>Last seen:</strong>
+                                    {{ entry.last_seen }}
+                                </div>
+
+                                {% if entry.linked_at %}
+                                    <div style="margin-top: 6px;">
+                                        <strong>Matched at:</strong>
+                                        {{ entry.linked_at }}
+                                    </div>
+                                {% endif %}
+                            </details>
                         </td>
 
                         <td style="padding: 10px; min-width: 220px;">
@@ -121,8 +141,8 @@
                                 <form method="POST"
                                     action="{{ url_for('admin_routes.dink_identities') }}"
                                     onsubmit="return confirm(
-                                        'Link this Dink identity to the selected player? ' +
-                                        'Historical pending events will not be processed.'
+                                        'Match this RuneScape account to the selected player? ' +
+                                        'Submissions waiting for review will still need a staff decision.'
                                     );">
 
                                     <input type="hidden"
@@ -159,7 +179,7 @@
 
                                     <button type="submit"
                                             style="width: 100%;">
-                                        Link Identity
+                                        Match Player
                                     </button>
                                 </form>
                             {% else %}
@@ -172,7 +192,7 @@
         </table>
     {% else %}
         <p style="color: #ccc;">
-            No Dink identities have been observed.
+            No RuneScape accounts have been recorded yet.
         </p>
     {% endif %}
 </div>

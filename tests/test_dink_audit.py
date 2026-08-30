@@ -112,8 +112,8 @@ def test_admin_can_view_dink_auth_audit(client):
         as_text=True
     )
 
-    assert "Dink Authentication Audit" in page
-    assert "MISSING_SECRET" in page
+    assert "Blocked Connection Attempts" in page
+    assert "Missing connection key" in page
     assert "Audit Page Tester" in page
     assert "audit-test-hash" in page
     assert "LOOT" in page

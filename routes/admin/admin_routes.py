@@ -95,7 +95,7 @@ def dink_identities():
 
         if action != 'manual_link':
             flash(
-                'Unknown Dink identity action.',
+                'Unknown player account action.',
                 'danger'
             )
             return redirect(
@@ -114,7 +114,7 @@ def dink_identities():
 
         if not dink_account_hash:
             flash(
-                'A Dink account hash is required.',
+                'The RuneScape account reference is missing.',
                 'danger'
             )
             return redirect(
@@ -153,14 +153,15 @@ def dink_identities():
             )
 
             flash(
-                f'Dink identity linked to {player_name}. '
-                'Historical pending events were not processed.',
+                f'RuneScape account matched to {player_name}. '
+                'Any submissions waiting for review still need '
+                'a staff decision.',
                 'success'
             )
 
         elif result['status'] == 'IDENTITY_NOT_FOUND':
             flash(
-                'That Dink identity no longer exists.',
+                'That RuneScape account is no longer available.',
                 'danger'
             )
 
@@ -172,21 +173,21 @@ def dink_identities():
 
         elif result['status'] == 'IDENTITY_ALREADY_LINKED':
             flash(
-                'That Dink identity is already linked to '
+                'That RuneScape account is already matched to '
                 'a different player.',
                 'danger'
             )
 
         elif result['status'] == 'PLAYER_ALREADY_LINKED':
             flash(
-                'That player is already linked to Dink hash '
-                f"{result['existing_linked_hash']}.",
+                'That player is already matched to another '
+                'RuneScape account.',
                 'danger'
             )
 
         else:
             flash(
-                'The Dink identity could not be linked.',
+                'The RuneScape account could not be matched.',
                 'danger'
             )
 
@@ -209,21 +210,22 @@ def dink_identities():
         review_reason = None
 
         if stored_status == 'LINKED':
-            review_reason = 'Verified and linked'
+            review_reason = 'Account matched to a player'
 
         elif stored_status == 'CONFLICT':
             if conflicting_rsns:
                 review_reason = (
-                    'Hash seen with conflicting RSNs'
+                    'Different RuneScape names were seen '
+                    'for this account'
                 )
             elif existing_linked_hash:
                 review_reason = (
-                    'Player already linked to another '
-                    'Dink account'
+                    'Player is already matched to another '
+                    'RuneScape account'
                 )
             else:
                 review_reason = (
-                    'Identity conflict requires review'
+                    'Account match needs a staff check'
                 )
 
         elif stored_status == 'PENDING':
@@ -233,17 +235,17 @@ def dink_identities():
             ):
                 display_status = 'PLAYER_NOT_FOUND'
                 review_reason = (
-                    'Three or more observations but no '
-                    'matching DanBot player'
+                    'Seen 3 or more times, but no matching '
+                    'bingo player was found'
                 )
             elif observations < 3:
                 review_reason = (
-                    f'Awaiting verification '
-                    f'({observations}/3 observations)'
+                    f'Seen {observations} of 3 times needed '
+                    f'for automatic matching'
                 )
             else:
                 review_reason = (
-                    'Identity still pending review'
+                    'Account is still waiting to be checked'
                 )
 
         identity_entries.append(
@@ -302,7 +304,7 @@ def dink_events():
 
         except (TypeError, ValueError):
             flash(
-                'Please select a valid Dink event.',
+                'Please select a valid submission.',
                 'danger'
             )
             return redirect(
@@ -319,34 +321,32 @@ def dink_events():
 
             if result['status'] == 'REJECTED':
                 flash(
-                    f'Dink event #{event_id} was rejected.',
+                    f'Submission #{event_id} was rejected.',
                     'success'
                 )
 
             elif result['status'] == 'EVENT_NOT_FOUND':
                 flash(
-                    'That Dink event no longer exists.',
+                    'That submission no longer exists.',
                     'danger'
                 )
 
             elif result['status'] == 'DUPLICATE_EVENT':
                 flash(
-                    'Duplicate Dink events cannot be '
-                    'reviewed manually.',
+                    'Duplicate submissions cannot be reviewed manually.',
                     'danger'
                 )
 
             elif result['status'] == 'INVALID_STATUS':
                 flash(
-                    f'Dink event #{event_id} can no longer '
-                    f'be rejected because its status is '
-                    f"{result['current_status']}.",
+                    f'Submission #{event_id} can no longer '
+                    'be rejected because it is no longer awaiting review.',
                     'danger'
                 )
 
             else:
                 flash(
-                    'The Dink event could not be rejected.',
+                    'The submission could not be rejected.',
                     'danger'
                 )
 
@@ -361,7 +361,7 @@ def dink_events():
 
             if event is None:
                 flash(
-                    'That Dink event no longer exists.',
+                    'That submission no longer exists.',
                     'danger'
                 )
                 return redirect(
@@ -370,8 +370,7 @@ def dink_events():
 
             if event[2] is not None:
                 flash(
-                    'Duplicate Dink events cannot be '
-                    'reviewed manually.',
+                    'Duplicate submissions cannot be reviewed manually.',
                     'danger'
                 )
                 return redirect(
@@ -380,9 +379,8 @@ def dink_events():
 
             if event[10] != 'PENDING_IDENTITY':
                 flash(
-                    f'Dink event #{event_id} can no longer '
-                    f'be accepted because its status is '
-                    f'{event[10]}.',
+                    f'Submission #{event_id} can no longer '
+                    'be accepted because it is no longer awaiting review.',
                     'danger'
                 )
                 return redirect(
@@ -399,8 +397,8 @@ def dink_events():
                 or identity[1] is None
             ):
                 flash(
-                    'This Dink event cannot be accepted '
-                    'until its identity is linked.',
+                    'This submission cannot be accepted until '
+                    'the RuneScape account has been checked.',
                     'danger'
                 )
                 return redirect(
@@ -436,16 +434,16 @@ def dink_events():
                 )
 
                 flash(
-                    f'Dink event #{event_id} was accepted '
-                    'but did not match any active bingo '
+                    f'Submission #{event_id} was accepted, '
+                    'but it did not match any active bingo '
                     'progress.',
                     'info'
                 )
 
             else:
                 flash(
-                    f'Dink event #{event_id} was accepted '
-                    'and processed.',
+                    f'Submission #{event_id} was accepted '
+                    'and bingo progress was updated.',
                     'success'
                 )
 
@@ -454,7 +452,7 @@ def dink_events():
             )
 
         flash(
-            'Unknown Dink event review action.',
+            'Unknown submission review action.',
             'danger'
         )
 
@@ -469,15 +467,9 @@ def dink_events():
     event_entries = []
 
     for row in event_rows:
+        if row[7] != 'LINKED' or row[9] is None:
+            continue
         claimed_rsn = row[2]
-        observed_rsn = row[8]
-
-        rsn_mismatch = (
-            isinstance(claimed_rsn, str)
-            and isinstance(observed_rsn, str)
-            and claimed_rsn.lower()
-                != observed_rsn.lower()
-        )
 
         event_entries.append(
             {
@@ -488,16 +480,9 @@ def dink_events():
                 'raw_payload': row[4],
                 'screenshot_path': row[5],
                 'received_at': row[6],
-                'identity_status': row[7],
-                'observed_rsn': observed_rsn,
                 'linked_player_id': row[9],
                 'linked_player_name': row[10],
-                'linked_team_name': row[11],
-                'rsn_mismatch': rsn_mismatch,
-                'identity_ready': (
-                    row[7] == 'LINKED'
-                    and row[9] is not None
-                )
+                'linked_team_name': row[11]
             }
         )
 

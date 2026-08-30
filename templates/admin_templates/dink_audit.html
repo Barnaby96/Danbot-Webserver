@@ -2,7 +2,7 @@
 
 {% block content %}
 <h1 style="text-align: center; color: #fff;">
-    Dink Authentication Audit
+    Blocked Connection Attempts
 </h1>
 
 <div style="width: 95%; margin: 0 auto; background-color: #1e1e1e;
@@ -11,7 +11,8 @@
             overflow-x: auto;">
 
     <p style="color: #ccc; margin-top: 0;">
-        Showing the 100 most recent rejected Dink requests.
+        Showing the 100 most recent connection attempts
+        that DanBot rejected before processing.
     </p>
 
     {% if audit_entries %}
@@ -20,12 +21,8 @@
                 <tr style="background-color: #2b2b2b;">
                     <th style="padding: 10px; text-align: left;">Time</th>
                     <th style="padding: 10px; text-align: left;">Reason</th>
-                    <th style="padding: 10px; text-align: left;">Claimed RSN</th>
-                    <th style="padding: 10px; text-align: left;">Dink Hash</th>
-                    <th style="padding: 10px; text-align: left;">Event</th>
-                    <th style="padding: 10px; text-align: left;">Format</th>
-                    <th style="padding: 10px; text-align: left;">Source IP</th>
-                    <th style="padding: 10px; text-align: left;">User Agent</th>
+                    <th style="padding: 10px; text-align: left;">RuneScape Account</th>
+                    <th style="padding: 10px; text-align: left;">Technical Details</th>
                 </tr>
             </thead>
 
@@ -37,31 +34,61 @@
                         </td>
 
                         <td style="padding: 10px;">
-                            {{ entry.failure_reason }}
+                            {% if entry.failure_reason == 'MISSING_SECRET' %}
+                                Missing connection key
+                            {% elif entry.failure_reason == 'INVALID_SECRET' %}
+                                Invalid connection key
+                            {% elif entry.failure_reason == 'SERVER_MISCONFIGURED' %}
+                                DanBot configuration problem
+                            {% else %}
+                                Connection rejected
+                            {% endif %}
                         </td>
 
-                        <td style="padding: 10px;">
+                        <td style="padding: 10px; white-space: nowrap;">
                             {{ entry.claimed_player_name or '—' }}
                         </td>
 
-                        <td style="padding: 10px; word-break: break-all;">
-                            {{ entry.claimed_dink_account_hash or '—' }}
-                        </td>
+                        <td style="padding: 10px; min-width: 260px;">
+                            <details>
+                                <summary style="cursor: pointer;">
+                                    Show technical details
+                                </summary>
 
-                        <td style="padding: 10px;">
-                            {{ entry.claimed_event_type or '—' }}
-                        </td>
+                                <div style="margin-top: 10px;">
+                                    <strong>Account reference:</strong>
+                                    <div style="word-break: break-all;
+                                                margin-top: 4px;">
+                                        {{
+                                            entry.claimed_dink_account_hash
+                                            or '—'
+                                        }}
+                                    </div>
+                                </div>
 
-                        <td style="padding: 10px;">
-                            {{ entry.request_format }}
-                        </td>
+                                <div style="margin-top: 12px;">
+                                    <strong>Submission type:</strong>
+                                    {{ entry.claimed_event_type or '—' }}
+                                </div>
 
-                        <td style="padding: 10px;">
-                            {{ entry.source_ip or '—' }}
-                        </td>
+                                <div style="margin-top: 6px;">
+                                    <strong>Request format:</strong>
+                                    {{ entry.request_format or '—' }}
+                                </div>
 
-                        <td style="padding: 10px; word-break: break-word;">
-                            {{ entry.user_agent or '—' }}
+                                <div style="margin-top: 6px;">
+                                    <strong>Source IP:</strong>
+                                    {{ entry.source_ip or '—' }}
+                                </div>
+
+                                <div style="margin-top: 6px;">
+                                    <strong>User agent:</strong>
+                                    <div style="word-break: break-word;
+                                                margin-top: 4px;">
+                                        {{ entry.user_agent or '—' }}
+                                    </div>
+                                </div>
+                            </details>
                         </td>
                     </tr>
                 {% endfor %}
@@ -69,7 +96,7 @@
         </table>
     {% else %}
         <p style="color: #ccc;">
-            No rejected Dink requests have been recorded.
+            No blocked connection attempts have been recorded.
         </p>
     {% endif %}
 </div>

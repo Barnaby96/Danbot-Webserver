@@ -2,7 +2,7 @@
 
 {% block content %}
 <h1 style="text-align: center; color: #fff;">
-    Historical Dink Event Review
+    Review Submissions
 </h1>
 
 <div style="width: 95%; margin: 0 auto; background-color: #1e1e1e;
@@ -11,27 +11,24 @@
             overflow-x: auto;">
 
     <p style="color: #ccc; margin-top: 0;">
-        Historical Dink events waiting for staff review.
-        Accept events that should count towards bingo progress, or reject
-        events that should not be processed.
+        Review bingo submissions that need a staff decision.
+        Check the player, team and evidence, then accept submissions
+        that should count or reject submissions that should not.
     </p>
 
     {% if event_entries %}
         <table style="width: 100%; border-collapse: collapse; color: #ccc;">
             <thead>
                 <tr style="background-color: #2b2b2b;">
-                    <th style="padding: 10px; text-align: left;">Event</th>
+                    <th style="padding: 10px; text-align: left;">Submission</th>
                     <th style="padding: 10px; text-align: left;">Received</th>
-                    <th style="padding: 10px; text-align: left;">Type</th>
-                    <th style="padding: 10px; text-align: left;">Claimed RSN</th>
-                    <th style="padding: 10px; text-align: left;">Identity RSN</th>
-                    <th style="padding: 10px; text-align: left;">Identity Status</th>
-                    <th style="padding: 10px; text-align: left;">Linked Player</th>
+                    <th style="padding: 10px; text-align: left;">Submission Type</th>
+                    <th style="padding: 10px; text-align: left;">RuneScape Account</th>
+                    <th style="padding: 10px; text-align: left;">Bingo Player</th>
                     <th style="padding: 10px; text-align: left;">Team</th>
-                    <th style="padding: 10px; text-align: left;">Dink Hash</th>
                     <th style="padding: 10px; text-align: left;">Evidence</th>
-                    <th style="padding: 10px; text-align: left;">Payload</th>
-                    <th style="padding: 10px; text-align: left;">Action</th>
+                    <th style="padding: 10px; text-align: left;">Technical Details</th>
+                    <th style="padding: 10px; text-align: left;">Decision</th>
                 </tr>
             </thead>
 
@@ -47,54 +44,17 @@
                         </td>
 
                         <td style="padding: 10px; white-space: nowrap;">
-                            {{ entry.event_type or '—' }}
-                        </td>
-
-                        <td style="padding: 10px; white-space: nowrap;">
-                            {% if entry.rsn_mismatch %}
-                                <span style="color: #ff7b7b; font-weight: bold;">
-                                    {{ entry.claimed_rsn }}
-                                </span>
-                                <div style="color: #ffb347;
-                                            font-size: 0.85em;
-                                            margin-top: 4px;">
-                                    RSN mismatch
-                                </div>
+                            {% if entry.event_type == 'LOOT' %}
+                                Drop
+                            {% elif entry.event_type == 'PET' %}
+                                Pet
                             {% else %}
-                                {{ entry.claimed_rsn or '—' }}
+                                Automatic submission
                             {% endif %}
                         </td>
 
                         <td style="padding: 10px; white-space: nowrap;">
-                            {{ entry.observed_rsn or '—' }}
-                        </td>
-
-                        <td style="padding: 10px; white-space: nowrap;">
-                            {% if entry.identity_status == 'LINKED' %}
-                                <span style="color: #7CFC98;">
-                                    LINKED
-                                </span>
-                            {% elif entry.identity_status == 'CONFLICT' %}
-                                <span style="color: #ff7b7b;">
-                                    CONFLICT
-                                </span>
-                            {% elif entry.identity_status == 'PENDING' %}
-                                <span style="color: #f5d76e;">
-                                    PENDING
-                                </span>
-                            {% else %}
-                                <span style="color: #ffb347;">
-                                    {{ entry.identity_status or 'NO IDENTITY' }}
-                                </span>
-                            {% endif %}
-
-                            {% if entry.identity_ready %}
-                                <div style="color: #7CFC98;
-                                            font-size: 0.85em;
-                                            margin-top: 4px;">
-                                    Ready for staff decision
-                                </div>
-                            {% endif %}
+                            {{ entry.claimed_rsn or '—' }}
                         </td>
 
                         <td style="padding: 10px; white-space: nowrap;">
@@ -105,11 +65,6 @@
                             {{ entry.linked_team_name or '—' }}
                         </td>
 
-                        <td style="padding: 10px; word-break: break-all;
-                                   min-width: 180px;">
-                            {{ entry.dink_account_hash or '—' }}
-                        </td>
-
                         <td style="padding: 10px; white-space: nowrap;">
                             {% if entry.screenshot_path %}
                                 <a href="{{ url_for(
@@ -118,19 +73,36 @@
                                     ) }}"
                                    target="_blank"
                                    rel="noopener noreferrer">
-                                    View Screenshot
+                                    View evidence
                                 </a>
                             {% else %}
-                                —
+                                No screenshot
                             {% endif %}
                         </td>
 
-                        <td style="padding: 10px; min-width: 320px;">
-                            <pre style="margin: 0;
-                                        white-space: pre-wrap;
-                                        word-break: break-word;
-                                        color: #ccc;
-                                        font-size: 0.85em;">{{ entry.raw_payload | tojson(indent=2) }}</pre>
+                        <td style="padding: 10px; min-width: 240px;">
+                            <details>
+                                <summary style="cursor: pointer;">
+                                    Show technical details
+                                </summary>
+
+                                <div style="margin-top: 10px;">
+                                    <strong>Reference:</strong>
+                                    <div style="word-break: break-all;
+                                                margin-top: 4px;">
+                                        {{ entry.dink_account_hash or '—' }}
+                                    </div>
+                                </div>
+
+                                <div style="margin-top: 12px;">
+                                    <strong>Recorded data:</strong>
+                                    <pre style="margin: 6px 0 0 0;
+                                                white-space: pre-wrap;
+                                                word-break: break-word;
+                                                color: #ccc;
+                                                font-size: 0.85em;">{{ entry.raw_payload | tojson(indent=2) }}</pre>
+                                </div>
+                            </details>
                         </td>
 
                         <td style="padding: 10px;
@@ -144,29 +116,21 @@
                                        name="event_id"
                                        value="{{ entry.event_id }}">
 
-                                {% if entry.identity_ready %}
-                                    <button type="submit"
-                                            name="action"
-                                            value="accept_event"
-                                            onclick="return confirm(
-                                                'Accept and process Dink event #{{ entry.event_id }}?'
-                                            );"
-                                            style="margin-right: 6px;">
-                                        Accept
-                                    </button>
-                                {% else %}
-                                    <div style="color: #f5d76e;
-                                                font-size: 0.85em;
-                                                margin-bottom: 6px;">
-                                        Link identity to accept
-                                    </div>
-                                {% endif %}
+                                <button type="submit"
+                                        name="action"
+                                        value="accept_event"
+                                        onclick="return confirm(
+                                            'Accept this submission and apply any matching bingo progress?'
+                                        );"
+                                        style="margin-right: 6px;">
+                                    Accept
+                                </button>
 
                                 <button type="submit"
                                         name="action"
                                         value="reject_event"
                                         onclick="return confirm(
-                                            'Reject Dink event #{{ entry.event_id }}? This event will not contribute to bingo progress.'
+                                            'Reject this submission? It will not count towards bingo progress.'
                                         );">
                                     Reject
                                 </button>
@@ -178,7 +142,7 @@
         </table>
     {% else %}
         <p style="color: #ccc;">
-            No historical Dink events are waiting for identity review.
+            There are no submissions waiting for review.
         </p>
     {% endif %}
 </div>

@@ -159,13 +159,15 @@ def test_admin_can_view_pending_dink_identity(client):
         as_text=True
     )
 
-    assert "Dink Identity Review" in page
-    assert "PENDING" in page
+    assert "Check Player Accounts" in page
+    assert "Checking account" in page
     assert "Pending Tester" in page
     assert "Identity Test Team" in page
     assert "pending-test-hash" in page
-    assert "Awaiting verification" in page
-    assert "1/3 observations" in page
+    assert (
+        "Seen 1 of 3 times needed "
+        "for automatic matching"
+    ) in page
 
 
 def test_admin_can_view_linked_dink_identity(client):
@@ -196,8 +198,8 @@ def test_admin_can_view_linked_dink_identity(client):
         as_text=True
     )
 
-    assert "LINKED" in page
-    assert "Verified and linked" in page
+    assert "Account matched" in page
+    assert "Account matched to a player" in page
     assert "Linked Tester" in page
     assert "Identity Test Team" in page
     assert "linked-test-hash" in page
@@ -227,12 +229,12 @@ def test_admin_sees_player_not_found_state(client):
         as_text=True
     )
 
-    assert "PLAYER NOT FOUND" in page
+    assert "Player not found" in page
     assert "Missing Tester" in page
     assert "missing-player-test-hash" in page
     assert (
-        "Three or more observations but no "
-        "matching DanBot player"
+        "Seen 3 or more times, but no matching "
+        "bingo player was found"
     ) in page
 
 
@@ -265,8 +267,11 @@ def test_admin_sees_conflicting_rsn_reason(client):
         as_text=True
     )
 
-    assert "CONFLICT" in page
-    assert "Hash seen with conflicting RSNs" in page
+    assert "Needs staff check" in page
+    assert (
+        "Different RuneScape names were seen "
+        "for this account"
+    ) in page
     assert "Original Tester" in page
     assert "Different Tester" in page
     assert "rsn-conflict-test-hash" in page
@@ -311,10 +316,10 @@ def test_admin_sees_existing_linked_hash_reason(client):
         as_text=True
     )
 
-    assert "CONFLICT" in page
+    assert "Needs staff check" in page
     assert (
-        "Player already linked to another "
-        "Dink account"
+        "Player is already matched to another "
+        "RuneScape account"
     ) in page
     assert "primary-test-hash" in page
     assert "secondary-test-hash" in page
@@ -677,15 +682,12 @@ def test_admin_can_view_historical_dink_event_review(client):
         as_text=True
     )
 
-    assert "Historical Dink Event Review" in page
+    assert "Review Submissions" in page
     assert "#1" in page
     assert "#2" in page
-    assert "KILL_COUNT" in page
+    assert "Automatic submission" in page
     assert "Historical Review Tester" in page
     assert "Wrong Historical Name" in page
-    assert "RSN mismatch" in page
-    assert "LINKED" in page
-    assert "Ready for staff decision" in page
     assert "Historical Review Team" in page
     assert "historical-review-test-hash" in page
 
@@ -724,7 +726,7 @@ def test_admin_can_reject_historical_dink_event(client):
     )
 
     assert (
-        f"Dink event #{event_id} was rejected."
+        f"Submission #{event_id} was rejected."
         in page
     )
 
@@ -820,7 +822,8 @@ def test_admin_can_accept_historical_dink_event(client):
     )
 
     assert (
-        f"Dink event #{event_id} was accepted and processed."
+        f"Submission #{event_id} was accepted "
+        "and bingo progress was updated."
         in page
     )
 
@@ -926,8 +929,8 @@ def test_admin_cannot_accept_unlinked_historical_dink_event(client):
     )
 
     assert (
-        "This Dink event cannot be accepted "
-        "until its identity is linked."
+        "This submission cannot be accepted until "
+        "the RuneScape account has been checked."
         in page
     )
 
