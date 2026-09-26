@@ -359,6 +359,25 @@
         'zulrah'
     ];
 
+    const WOM_ACTIVITY_METRICS = [
+        'bounty_hunter_hunter',
+        'bounty_hunter_rogue',
+        'clue_scrolls_all',
+        'clue_scrolls_beginner',
+        'clue_scrolls_easy',
+        'clue_scrolls_medium',
+        'clue_scrolls_hard',
+        'clue_scrolls_elite',
+        'clue_scrolls_master',
+        'last_man_standing',
+        'pvp_arena',
+        'soul_wars_zeal',
+        'guardians_of_the_rift',
+        'colosseum_glory',
+        'collections_logged',
+        'ehp',
+        'ehb',
+    ];
     function formatWomMetricLabel(metric) {
         return metric
             .split('_')
@@ -433,6 +452,21 @@
                         Select WOM skill
                     </option>
                     ${buildMetricOptions(WOM_EXPERIENCE_METRICS, value)}
+                </select>
+            `;
+        } else if (conditionType === 'METRIC') {
+            const isValidMetric = WOM_ACTIVITY_METRICS.includes(value);
+
+            controlHtml = `
+                <select
+                    class="osrs-form-input"
+                    name="condition_trigger"
+                    required
+                >
+                    <option value=""${isValidMetric ? '' : ' selected'}>
+                        Select WOM metric
+                    </option>
+                    ${buildMetricOptions(WOM_ACTIVITY_METRICS, value)}
                 </select>
             `;
         } else {
